@@ -8,7 +8,7 @@ getgenv().Config = {
     ["Auto Sell"] = true, -- auto sells harvested fruits after timer / capacity
     ["Auto Buy Seed"] = true, -- buys seeds from shop automatically
     ["Auto Buy Gear"] = true, -- buys tools like sprinklers, cans, etc
-    ["Auto Use Gear"] = true -- automatically equips/uses bought gear
+    ["Auto Use Gear"] = false -- automatically equips/uses bought gear
   },
 
   ["Auto Expand Garden"] = true, -- expands plot when conditions are met
@@ -20,7 +20,7 @@ getgenv().Config = {
     ["Workspace Cleaner"] = true, -- removes unnecessary parts for better performance
     ["Black Screen"] = false, -- disables rendering for performance boost
     ["FPS Cap"] = 60, -- sets max FPS (60 recommended)
-    ["Auto Set FPS"] = true, -- auto adjusts FPS cap based on device
+    ["Auto Set FPS"] = false, -- auto adjusts FPS cap based on device
     -- true = PC/Windows recommended
     -- false = emulator/mobile optimization
   },
@@ -28,11 +28,11 @@ getgenv().Config = {
   -- SECONDARY SYSTEMS (PET / UTILITY / QUALITY OF LIFE)
   --////////////////////////////////////////////////////
   ["Other Features"] = {
-    ["Auto Shovel"] = true, -- removes unwanted plants automatically
+    ["Auto Shovel"] = false, -- removes unwanted plants automatically
     ["Auto Catch Pet"] = true, -- auto catches new pets spawned in world
     ["Auto Equip Pets"] = true, -- equips best pets automatically
     ["Auto Optimize Pets"] = true, -- optimizes pet stats/loadout
-    ["Auto Upgrade Pet Slots"] = true, -- increases pet capacity automatically
+    ["Auto Upgrade Pet Slots"] = false, -- increases pet capacity automatically
     ["Auto Tutorial"] = true -- skips or completes tutorial steps
   },
 
@@ -40,7 +40,7 @@ getgenv().Config = {
   -- CODE SYSTEM
   --////////////////////////////////////////////////////
   ["Codes"] = {
-    ["Auto Redeem Codes"] = true, -- automatically redeems all codes listed
+    ["Auto Redeem Codes"] = false, -- automatically redeems all codes listed
     ["Codes To Redeem"] = {
       "TEAMGREENBEAN",
     }
@@ -158,7 +158,7 @@ getgenv().Config = {
   --////////////////////////////////////////////////////
 
   ["Smart Daily Deal"] = {
-    ["Enabled"] = true, -- enables automatic Daily Deal handling
+    ["Enabled"] = false, -- enables automatic Daily Deal handling
     ["Fruit Amount"] = 10, -- minimum amount of a fruit to keep before donating extras
     ["Fruits"] = { -- fruits allowed to be used for Daily Deals
       "Carrot"

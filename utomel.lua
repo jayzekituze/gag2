@@ -1403,6 +1403,7 @@ local function startAutoSend()
     autoSendBtn.Text = "⏹   Stop Auto Send"
     TweenService:Create(autoSendBtn,TweenInfo.new(0.2),{BackgroundColor3=T.red}):Play()
     autoSendThread = task.spawn(function()
+        local itemIndex = 1  -- tracks which item in the list to send next
         while autoSendRunning do
             rebuildCfg()
             cfg.username = usernameBox.Text
@@ -1413,7 +1414,27 @@ local function startAutoSend()
             local inv = getInv()
             if inv then updateItemStatuses(inv) end
 
+            if #cfg.items == 0 then
+                log("⚠  No items in list.", true)
+                task.wait(cfg.interval)
+                continue
+            end
+
+            -- Clamp index in case items were removed
+            if itemIndex > #cfg.items then itemIndex = 1 end
+
+            local singleItem = cfg.items[itemIndex]
+            log("["..itemIndex.."/"..#cfg.items.."] Sending: "..singleItem.name.." ×"..tostring(singleItem.amount).."...")
+
+            -- Temporarily override cfg.items with just the one item
+            local originalItems = cfg.items
+            cfg.items = { singleItem }
             pcall(function() doSend(log) end)
+            cfg.items = originalItems  -- restore full list
+
+            -- Advance to next item, loop back to 1 after last
+            itemIndex = itemIndex % #originalItems + 1
+
             task.wait(cfg.interval)
         end
     end)

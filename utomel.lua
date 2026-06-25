@@ -1342,7 +1342,6 @@ saveNowBtn.MouseButton1Click:Connect(function()
     task.delay(1.5, function() if saveNowBtn and saveNowBtn.Parent then saveNowBtn.Text=orig end end)
 end)
 
-local _, _, _set = mkToggle("", 0, sp) -- dummy, ignore
 -- wire toggle to cfg
 task.spawn(function()
     while gui.Parent do

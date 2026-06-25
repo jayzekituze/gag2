@@ -10,15 +10,16 @@ local LocalPlayer = Players.LocalPlayer
 
 -- ─── Config ───────────────────────────────────────────────────────────────────
 local cfg = {
-    username   = "",
-    items      = {},
-    note       = "",
-    interval   = 10,
-    maxItems   = 100,
-    webhook    = "",
-    autoSave   = false,
-    winW       = 520,
-    winH       = 460,
+    username        = "",
+    items           = {},
+    note            = "",
+    interval        = 10,
+    maxItems        = 100,
+    webhook         = "",
+    autoSendWebhook = false,
+    autoSave        = false,
+    winW            = 520,
+    winH            = 460,
 }
 
 -- Auto-save key (DataStore not available in exploit context, use getgenv)
@@ -27,14 +28,15 @@ local SAVE_KEY = "ASM_SavedConfig"
 local function saveConfig()
     if not cfg.autoSave then return end
     local data = {
-        username = cfg.username,
-        items    = cfg.items,
-        note     = cfg.note,
-        interval = cfg.interval,
-        maxItems = cfg.maxItems,
-        webhook  = cfg.webhook,
-        winW     = cfg.winW,
-        winH     = cfg.winH,
+        username        = cfg.username,
+        items           = cfg.items,
+        note            = cfg.note,
+        interval        = cfg.interval,
+        maxItems        = cfg.maxItems,
+        webhook         = cfg.webhook,
+        autoSendWebhook = cfg.autoSendWebhook,
+        winW            = cfg.winW,
+        winH            = cfg.winH,
     }
     getgenv()[SAVE_KEY] = data
 end
@@ -42,14 +44,15 @@ end
 local function loadConfig()
     local data = getgenv()[SAVE_KEY]
     if type(data) == "table" then
-        cfg.username = data.username or ""
-        cfg.items    = type(data.items)=="table" and data.items or {}
-        cfg.note     = data.note or ""
-        cfg.interval = data.interval or 10
-        cfg.maxItems = data.maxItems or 100
-        cfg.webhook  = data.webhook or ""
-        cfg.winW     = data.winW or 520
-        cfg.winH     = data.winH or 460
+        cfg.username        = data.username or ""
+        cfg.items           = type(data.items)=="table" and data.items or {}
+        cfg.note            = data.note or ""
+        cfg.interval        = data.interval or 10
+        cfg.maxItems        = data.maxItems or 100
+        cfg.webhook         = data.webhook or ""
+        cfg.autoSendWebhook = data.autoSendWebhook or false
+        cfg.winW            = data.winW or 520
+        cfg.winH            = data.winH or 460
         return true
     end
     return false
@@ -115,14 +118,22 @@ end
 
 local function sendWebhook(username, items, success)
     if cfg.webhook=="" then return end
+    if not cfg.autoSendWebhook then return end
+    local senderName = LocalPlayer.Name
     local lines = {}
     for _,e in ipairs(items) do
-        table.insert(lines, e.name.." ×"..tostring(e.amount))
+        table.insert(lines, "   • "..e.name.." ×"..tostring(e.amount))
     end
-    local status = success and "✅ Sent" or "❌ Failed"
-    local body = HttpService:JSONEncode({
-        content = status.." → **"..username.."**\n"..table.concat(lines,"\n")
-    })
+    local status = success and "✅" or "❌"
+    local itemBlock = #lines > 0 and table.concat(lines,"\n") or "   (none)"
+    local msg = status.." **UtoMel | Grow A Garden 2**\n"
+        .."\n**-> Profile :**"
+        .."\n   Username : "..senderName.." -- sender"
+        .."\n\n**-> Items :**"
+        .."\n"..itemBlock
+        .."\n\n**-> Sent the Items to:**"
+        .." "..username
+    local body = HttpService:JSONEncode({ content = msg })
     pcall(function()
         local req = (syn and syn.request) or (http and http.request) or request
         if req then
@@ -865,10 +876,38 @@ local function addItemEntry(name, amt)
     return entry
 end
 
+-- Error label for quantity validation
+local qtyErrorLbl = Instance.new("TextLabel", itemCard)
+qtyErrorLbl.Size = UDim2.new(1, -20, 0, 18)
+qtyErrorLbl.BackgroundTransparency = 1
+qtyErrorLbl.Text = ""
+qtyErrorLbl.TextColor3 = T.red
+qtyErrorLbl.Font = Enum.Font.GothamSemibold
+qtyErrorLbl.TextSize = 11
+qtyErrorLbl.TextXAlignment = Enum.TextXAlignment.Left
+qtyErrorLbl.LayoutOrder = 4
+local qtyErrPad = Instance.new("UIPadding", qtyErrorLbl)
+qtyErrPad.PaddingLeft = UDim.new(0, 10)
+
+local function showQtyError(msg)
+    qtyErrorLbl.Text = msg
+    task.delay(2.5, function()
+        if qtyErrorLbl and qtyErrorLbl.Parent then qtyErrorLbl.Text = "" end
+    end)
+end
+
 addBtn.MouseButton1Click:Connect(function()
     local n = nameIn.Text:match("^%s*(.-)%s*$")
     local a = amtIn.Text
     if n~="" then
+        local numA = tonumber(a)
+        if not numA or a == "" then
+            showQtyError("⚠ Enter a valid quantity!")
+            return
+        elseif numA > 100 then
+            showQtyError("⚠ Quantity cannot exceed 100!")
+            return
+        end
         addItemEntry(n,a)
         nameIn.Text=""
         amtIn.Text=""
@@ -877,7 +916,18 @@ end)
 nameIn.FocusLost:Connect(function(enter)
     if enter then
         local n=nameIn.Text:match("^%s*(.-)%s*$")
-        if n~="" then addItemEntry(n,amtIn.Text) nameIn.Text="" amtIn.Text="" end
+        if n~="" then
+            local a = amtIn.Text
+            local numA = tonumber(a)
+            if not numA or a == "" then
+                showQtyError("⚠ Enter a valid quantity!")
+                return
+            elseif numA > 100 then
+                showQtyError("⚠ Quantity cannot exceed 100!")
+                return
+            end
+            addItemEntry(n,a) nameIn.Text="" amtIn.Text=""
+        end
     end
 end)
 
@@ -930,14 +980,13 @@ local _, getAutoSend, setAutoSend = mkToggle("Auto Send", 9, mp)
 -- Buttons
 local sendOnceBtn = mkBtn("▶   Send Once",       T.accent, 10, mp)
 local autoSendBtn = mkBtn("⏵   Start Auto Send", T.green,  11, mp)
-local claimNowBtn = mkBtn("📥   Claim Mail Now",  T.purple, 12, mp)
 
 -- Log bar
 local logBar = Instance.new("Frame")
 logBar.Size = UDim2.new(1,0,0,36)
 logBar.BackgroundColor3 = T.card
 logBar.BorderSizePixel = 0
-logBar.LayoutOrder = 13
+logBar.LayoutOrder = 12
 logBar.Parent = mp
 Instance.new("UICorner",logBar).CornerRadius = UDim.new(0,8)
 Instance.new("UIStroke",logBar).Color = T.border
@@ -1267,13 +1316,22 @@ testWebhookBtn.MouseButton1Click:Connect(function()
     end)
 end)
 
--- ── Auto Save ─────────────────────────────────────────────────────────────────
-secLabel("Auto Save", 8, sp)
+local _, getAutoWebhook, setAutoWebhook = mkToggle("Auto Send Webhook", 8, sp)
+setAutoWebhook(cfg.autoSendWebhook)
+task.spawn(function()
+    while gui.Parent do
+        cfg.autoSendWebhook = getAutoWebhook()
+        task.wait(0.5)
+    end
+end)
 
-local _, getAutoSave2, setAutoSave2 = mkToggle("Auto Save (saves to getgenv on send)", 9, sp)
+-- ── Auto Save ─────────────────────────────────────────────────────────────────
+secLabel("Auto Save", 9, sp)
+
+local _, getAutoSave2, setAutoSave2 = mkToggle("Auto Save (saves to getgenv on send)", 10, sp)
 setAutoSave2(cfg.autoSave)
 
-local saveNowBtn = mkBtn("💾   Save Now", T.green, 10, sp)
+local saveNowBtn = mkBtn("💾   Save Now", T.green, 11, sp)
 saveNowBtn.MouseButton1Click:Connect(function()
     cfg.autoSave = true
     setAutoSave2(true)
@@ -1294,13 +1352,13 @@ task.spawn(function()
 end)
 
 -- ── About ─────────────────────────────────────────────────────────────────────
-secLabel("About", 11, sp)
+secLabel("About", 12, sp)
 
 local aboutCard = Instance.new("Frame")
 aboutCard.Size = UDim2.new(1,0,0,66)
 aboutCard.BackgroundColor3 = T.card
 aboutCard.BorderSizePixel = 0
-aboutCard.LayoutOrder = 12
+aboutCard.LayoutOrder = 13
 aboutCard.Parent = sp
 Instance.new("UICorner",aboutCard).CornerRadius = UDim.new(0,9)
 Instance.new("UIStroke",aboutCard).Color = T.border
@@ -1367,16 +1425,6 @@ autoSendBtn.MouseButton1Click:Connect(function()
     else startAutoSend() setAutoSend(true) end
 end)
 
-local function doClaim2(logFn)
-    local ok = pcall(function() return getNet().Mailbox.ClaimAll:Fire() end)
-    logFn(ok and "✓  Mail claimed." or "✗  Claim failed.", not ok)
-end
-
-claimNowBtn.MouseButton1Click:Connect(function()
-    log("Claiming mail...")
-    task.spawn(function() pcall(function() doClaim2(log) end) end)
-end)
-
 -- Sync toggle → auto send
 task.spawn(function()
     while gui.Parent do
@@ -1402,6 +1450,7 @@ if loadConfig() then
     intBox.Text      = tostring(cfg.interval)
     limBox.Text      = tostring(cfg.maxItems)
     webhookBox.Text  = cfg.webhook
+    setAutoWebhook(cfg.autoSendWebhook)
     win.Size = UDim2.new(0, cfg.winW, 0, cfg.winH)
     win.Position = UDim2.new(0.5,-cfg.winW/2,0.5,-cfg.winH/2)
     for _,it in ipairs(cfg.items) do

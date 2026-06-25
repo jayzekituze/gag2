@@ -1,98 +1,78 @@
 -- Auto Send Mailbox GUI v3.0
 -- Paste into your executor
 
-local RS = game:GetService("ReplicatedStorage")
-local Players = game:GetService("Players")
+local RS           = game:GetService("ReplicatedStorage")
+local Players      = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
-local UIS = game:GetService("UserInputService")
-local HttpService = game:GetService("HttpService")
-local LocalPlayer = Players.LocalPlayer
+local UIS          = game:GetService("UserInputService")
+local HttpService  = game:GetService("HttpService")
+local LocalPlayer  = Players.LocalPlayer
 
--- ─── Config ───────────────────────────────────────────────────────────────────
+-- ═══════════════════════════════════════════════════════════════════════
+-- CONFIG & SAVE
+-- ═══════════════════════════════════════════════════════════════════════
+local SAVE_KEY = "ASM_Config_v3"
+
 local cfg = {
-    username        = "",
-    items           = {},
-    note            = "",
-    interval        = 10,
-    maxItems        = 100,
-    webhook         = "",
-    autoSendWebhook = false,
-    autoSave        = false,
-    autoLoad        = false,
-    configName      = "default",
-    winW            = 520,
-    winH            = 460,
+    username = "",
+    items    = {},   -- { name, amount, enabled }
+    note     = "",
+    interval = 10,
+    maxAmt   = 100,
+    webhook  = "",
+    webhookOn= false,
+    winW     = 540,
+    winH     = 480,
 }
 
--- ─── Config file system ───────────────────────────────────────────────────────
-local function getConfigKey(name) return "ASM_Config_" .. (name or cfg.configName or "default") end
+local configs = {}   -- named config slots: { [name] = saved_cfg_table }
 
-local function saveConfig(name)
-    local key = getConfigKey(name)
-    local data = {
-        username        = cfg.username,
-        items           = cfg.items,
-        note            = cfg.note,
-        interval        = cfg.interval,
-        maxItems        = cfg.maxItems,
-        webhook         = cfg.webhook,
-        autoSendWebhook = cfg.autoSendWebhook,
-        autoLoad        = cfg.autoLoad,
-        configName      = cfg.configName,
-        winW            = cfg.winW,
-        winH            = cfg.winH,
+local function deepCopy(t)
+    if type(t)~="table" then return t end
+    local c={}
+    for k,v in pairs(t) do c[k]=deepCopy(v) end
+    return c
+end
+
+local function saveAll()
+    getgenv()[SAVE_KEY] = {
+        cfg     = deepCopy(cfg),
+        configs = deepCopy(configs),
     }
-    getgenv()[key] = data
-    -- Also save to file if writefile is available
-    pcall(function()
-        if writefile then
-            writefile("ASM_" .. (name or cfg.configName) .. ".json", HttpService:JSONEncode(data))
-        end
-    end)
 end
 
-local function loadConfig(name)
-    local key = getConfigKey(name)
-    local data = getgenv()[key]
-    -- Try file if not in genv
-    if not data then
-        pcall(function()
-            if readfile and isfile and isfile("ASM_" .. (name or cfg.configName) .. ".json") then
-                data = HttpService:JSONDecode(readfile("ASM_" .. (name or cfg.configName) .. ".json"))
-            end
-        end)
+local function loadAll()
+    local d = getgenv()[SAVE_KEY]
+    if type(d)~="table" then return false end
+    if type(d.cfg)=="table" then
+        for k,v in pairs(d.cfg) do cfg[k]=v end
     end
-    if type(data) == "table" then
-        cfg.username        = data.username or ""
-        cfg.items           = type(data.items)=="table" and data.items or {}
-        cfg.note            = data.note or ""
-        cfg.interval        = data.interval or 10
-        cfg.maxItems        = data.maxItems or 100
-        cfg.webhook         = data.webhook or ""
-        cfg.autoSendWebhook = data.autoSendWebhook or false
-        cfg.autoLoad        = data.autoLoad or false
-        cfg.configName      = data.configName or name or "default"
-        cfg.winW            = data.winW or 520
-        cfg.winH            = data.winH or 460
-        return true
+    if type(d.configs)=="table" then
+        configs = deepCopy(d.configs)
     end
-    return false
+    return true
 end
 
--- ─── Core game logic ──────────────────────────────────────────────────────────
+-- ═══════════════════════════════════════════════════════════════════════
+-- GAME LOGIC
+-- ═══════════════════════════════════════════════════════════════════════
 local STACK = {
     Sprinklers=1,WateringCans=1,Mushrooms=1,Gnomes=1,Raccoons=1,Crates=1,
     SeedPacks=1,Trowels=1,Props=1,Seeds=1,HarvestedFruits=1,Flashbangs=1,EmptyPots=1,
 }
 
-local function getNet() return require(RS:WaitForChild("SharedModules"):WaitForChild("Networking")) end
-local function getPS()  return require(RS:WaitForChild("ClientModules"):WaitForChild("PlayerStateClient")) end
+local function safeNet()
+    return require(RS:WaitForChild("SharedModules"):WaitForChild("Networking"))
+end
+local function safePS()
+    return require(RS:WaitForChild("ClientModules"):WaitForChild("PlayerStateClient"))
+end
 local function getInv()
-    local ok,r = pcall(function() return getPS():WaitForLocalReplica(5) end)
+    local ok,r = pcall(function() return safePS():WaitForLocalReplica(5) end)
     return ok and r and r.Data and type(r.Data.Inventory)=="table" and r.Data.Inventory
 end
 
-local function hasItemInInv(inv, name)
+local function hasItem(inv, name)
     if type(inv.Pets)=="table" then
         for _,p in pairs(inv.Pets) do
             if type(p)=="table" and p.Id and not p.Equipped and tostring(p.Name)==name then
@@ -107,1147 +87,1284 @@ local function hasItemInInv(inv, name)
     return false
 end
 
-local function buildBatch(inv, items)
-    local out, max = {}, 20
-    for _,entry in ipairs(items) do
-        local name = entry.name
-        local amt  = math.min(math.max(1, math.floor(tonumber(entry.amount) or 1)), cfg.maxItems)
-        if #out >= max then break end
-        if not hasItemInInv(inv, name) then continue end
-        local want = amt
-        if type(inv.Pets)=="table" then
-            for key,p in pairs(inv.Pets) do
-                if want<=0 or #out>=max then break end
-                if type(p)=="table" and p.Id and not p.Equipped and tostring(p.Name)==name then
-                    out[#out+1]={Category="Pets",ItemKey=key,Count=1}
-                    want-=1
-                end
+local function buildBatch(inv, entry)
+    local out = {}
+    local want = math.min(math.max(1,math.floor(entry.amount or 1)), cfg.maxAmt)
+    -- pets
+    if type(inv.Pets)=="table" then
+        for key,p in pairs(inv.Pets) do
+            if want<=0 then break end
+            if type(p)=="table" and p.Id and not p.Equipped and tostring(p.Name)==entry.name then
+                out[#out+1]={Category="Pets",ItemKey=key,Count=1}
+                want-=1
             end
         end
-        if want>0 then
-            for cat in pairs(STACK) do
-                local t=inv[cat]
-                if type(t)=="table" and type(t[name])=="number" and t[name]>0 then
-                    out[#out+1]={Category=cat,ItemKey=name,Count=math.min(want,t[name])}
-                    break
-                end
+    end
+    -- stacked
+    if want>0 then
+        for cat in pairs(STACK) do
+            local t=inv[cat]
+            if type(t)=="table" and type(t[entry.name])=="number" and t[entry.name]>0 then
+                out[#out+1]={Category=cat,ItemKey=entry.name,Count=math.min(want,t[entry.name])}
+                break
             end
         end
     end
     return out
 end
 
--- ─── Webhook (awesome embed) ──────────────────────────────────────────────────
-local function sendWebhook(username, items, success)
-    if cfg.webhook=="" then return end
-    if not cfg.autoSendWebhook then return end
-    local senderName = LocalPlayer.Name
-    local status = success and "✅ Success" or "❌ Failed"
-    local color  = success and 3066993 or 15158332  -- Discord green / red
+-- ═══════════════════════════════════════════════════════════════════════
+-- WEBHOOK  (Discord embed style)
+-- ═══════════════════════════════════════════════════════════════════════
+local function sendWebhook(to, sentItems, skippedNames, success)
+    if cfg.webhook=="" or not cfg.webhookOn then return end
+    local sender = LocalPlayer.Name
+    local now    = os.date("%Y-%m-%d %H:%M:%S")
+    local color  = success and 3066993 or 15158332  -- green / red decimal
 
-    local itemFields = {}
-    for _,e in ipairs(items) do
-        table.insert(itemFields, {
-            name   = "📦 " .. e.name,
-            value  = "` ×" .. tostring(e.amount) .. " `",
-            inline = true,
-        })
+    local itemLines = {}
+    for _,e in ipairs(sentItems) do
+        table.insert(itemLines, "• **"..e.name.."** ×"..tostring(e.amount))
     end
-    if #itemFields == 0 then
-        table.insert(itemFields, {name="📦 Items", value="`(none)`", inline=false})
-    end
+    local itemBlock = #itemLines>0 and table.concat(itemLines,"\n") or "_nothing_"
+
+    local skipBlock = #skippedNames>0 and table.concat(skippedNames,", ") or "_none_"
 
     local embed = {
-        title       = "📬  Auto Send Mailbox",
-        description = status .. "\n\n**Sender** › `" .. senderName .. "`\n**Recipient** › `" .. username .. "`",
+        title       = (success and "✅  Items Sent" or "❌  Send Failed").." — Auto Send Mailbox",
         color       = color,
-        fields      = itemFields,
-        footer      = {
-            text     = "Auto Send Mailbox v3.0 • " .. os.date("%H:%M:%S"),
+        description = "**→ Profile**\n```\nSender  :  "..sender.."\nTarget  :  "..to.."\n```",
+        fields = {
+            {name="📦  Items Sent", value=itemBlock, inline=false},
+            {name="⏭  Skipped (not in inv)", value=skipBlock, inline=false},
         },
-        thumbnail   = {
-            url = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. tostring(LocalPlayer.UserId) .. "&width=420&height=420&format=png",
-        },
+        footer = {text="Auto Send Mailbox  •  "..now},
+        thumbnail = {url="https://www.roblox.com/headshot-thumbnail/image?userId="..tostring(LocalPlayer.UserId).."&width=48&height=48&format=png"},
     }
 
-    local body = HttpService:JSONEncode({ embeds = { embed } })
+    local body = HttpService:JSONEncode({embeds={embed}})
     pcall(function()
         local req = (syn and syn.request) or (http and http.request) or request
         if req then
-            req({Url=cfg.webhook, Method="POST", Headers={["Content-Type"]="application/json"}, Body=body})
+            req({Url=cfg.webhook,Method="POST",
+                 Headers={["Content-Type"]="application/json"},Body=body})
         end
     end)
 end
 
--- ─── Output log entries ───────────────────────────────────────────────────────
+-- ═══════════════════════════════════════════════════════════════════════
+-- OUTPUT LOG
+-- ═══════════════════════════════════════════════════════════════════════
 local outputLog = {}
-local MAX_LOG = 10
-local outputUpdateFn = nil
+local MAX_LOG   = 10
+local rebuildOutputFn = nil  -- assigned later
 
-local function addOutputEntry(to, items, skipped, success)
-    local now = os.date("%H:%M:%S")
-    local entry = {time=now, to=to, items=items, skipped=skipped, success=success}
-    table.insert(outputLog, 1, entry)
-    if #outputLog > MAX_LOG then table.remove(outputLog, #outputLog) end
-    if outputUpdateFn then outputUpdateFn() end
+local function pushLog(to, sent, skipped, success)
+    table.insert(outputLog,1,{
+        time=os.date("%H:%M:%S"), to=to,
+        items=deepCopy(sent), skipped=deepCopy(skipped), success=success,
+    })
+    while #outputLog>MAX_LOG do table.remove(outputLog) end
+    if rebuildOutputFn then rebuildOutputFn() end
 end
 
-local function doSend(logFn)
-    if cfg.username=="" then logFn("⚠  No username set.", true) return false end
-    if #cfg.items==0 then logFn("⚠  No items in list.", true) return false end
+-- ═══════════════════════════════════════════════════════════════════════
+-- CORE SEND (single item entry)
+-- ═══════════════════════════════════════════════════════════════════════
+local function doSendEntry(entry, logFn)
+    -- entry = { name, amount, enabled }
+    if cfg.username=="" then logFn("⚠  No username set.",true) return false end
     local inv = getInv()
-    if not inv then logFn("⚠  Could not read inventory.", true) return false end
-
-    local available, skipped = {}, {}
-    for _,e in ipairs(cfg.items) do
-        if hasItemInInv(inv, e.name) then
-            table.insert(available, e)
-        else
-            table.insert(skipped, e.name)
-        end
+    if not inv then logFn("⚠  Could not read inventory.",true) return false end
+    if not hasItem(inv, entry.name) then
+        logFn("⏭  Skipped (not in inv): "..entry.name, true)
+        return false, true  -- false=not sent, true=was_skip
     end
-
-    if #available==0 then
-        logFn("⚠  None of your listed items found in inventory.", true)
-        addOutputEntry(cfg.username, {}, skipped, false)
-        return false
-    end
-
-    local batch = buildBatch(inv, available)
-    if #batch==0 then logFn("⚠  Build batch failed.", true) return false end
-
-    local Net = getNet()
+    local batch = buildBatch(inv, entry)
+    if #batch==0 then logFn("⚠  Build batch empty for: "..entry.name,true) return false end
+    local Net = safeNet()
     local ok,uid = pcall(function() return Net.Mailbox.LookupPlayer:Fire(cfg.username) end)
     if not ok or type(uid)~="number" or uid<=0 then
-        logFn("⚠  Player lookup failed.", true)
-        addOutputEntry(cfg.username, available, skipped, false)
-        return false
+        logFn("⚠  Player lookup failed.",true) return false
     end
-
-    local ok2,success = pcall(function() return Net.Mailbox.SendBatch:Fire(uid, batch, cfg.note or "") end)
-    local worked = success==true
-    if worked then
-        logFn("✓  Sent to "..cfg.username..(#skipped>0 and "  (skipped "..#skipped..")" or ""))
-        sendWebhook(cfg.username, available, true)
-    else
-        logFn("✗  Send failed.", true)
-        sendWebhook(cfg.username, available, false)
-    end
-    addOutputEntry(cfg.username, available, skipped, worked)
-    if cfg.autoSave then saveConfig() end
+    local ok2,suc = pcall(function() return Net.Mailbox.SendBatch:Fire(uid,batch,cfg.note or "") end)
+    local worked = suc==true
     return worked
 end
 
--- ═══════════════════════════════════════════════════════════════════════════════
--- GUI
--- ═══════════════════════════════════════════════════════════════════════════════
-local gui = Instance.new("ScreenGui")
-gui.Name = "AutoSendMailbox"
-gui.ResetOnSpawn = false
-gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+-- Full-list send (Send Once): tries every enabled item, logs everything
+local function doSendAll(logFn)
+    if cfg.username=="" then logFn("⚠  No username set.",true) return end
+    local inv = getInv()
+    if not inv then logFn("⚠  Could not read inventory.",true) return end
 
--- Theme
+    local sent,skipped = {},{}
+    for _,e in ipairs(cfg.items) do
+        if not e.enabled then continue end
+        if not hasItem(inv,e.name) then
+            table.insert(skipped,e.name)
+        else
+            local batch = buildBatch(inv,e)
+            if #batch>0 then
+                local Net=safeNet()
+                local ok,uid=pcall(function() return Net.Mailbox.LookupPlayer:Fire(cfg.username) end)
+                if ok and type(uid)=="number" and uid>0 then
+                    local ok2,suc=pcall(function() return Net.Mailbox.SendBatch:Fire(uid,batch,cfg.note or "") end)
+                    if suc==true then table.insert(sent,e) end
+                end
+            end
+        end
+    end
+
+    local success = #sent>0
+    if success then
+        logFn("✓  Sent "..#sent.." item(s) to "..cfg.username..(#skipped>0 and "  (skipped "..#skipped..")" or ""))
+    else
+        logFn("✗  Nothing sent"..(#skipped>0 and " — all skipped." or "."),true)
+    end
+    pushLog(cfg.username,sent,skipped,success)
+    sendWebhook(cfg.username,sent,skipped,success)
+    saveAll()
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- THEME
+-- ═══════════════════════════════════════════════════════════════════════
 local T = {
-    bg       = Color3.fromRGB(13, 13, 20),
-    sidebar  = Color3.fromRGB(18, 18, 28),
-    surface  = Color3.fromRGB(22, 22, 36),
-    card     = Color3.fromRGB(28, 28, 46),
-    cardAlt  = Color3.fromRGB(24, 24, 40),
-    input    = Color3.fromRGB(16, 16, 28),
-    border   = Color3.fromRGB(48, 48, 72),
-    borderHi = Color3.fromRGB(80, 100, 200),
-    accent   = Color3.fromRGB(100, 140, 255),
-    accentGl = Color3.fromRGB(130, 165, 255),
-    green    = Color3.fromRGB(55, 200, 110),
-    greenDk  = Color3.fromRGB(35, 150, 75),
-    red      = Color3.fromRGB(220, 65, 65),
-    redDk    = Color3.fromRGB(160, 40, 40),
-    orange   = Color3.fromRGB(230, 150, 50),
-    purple   = Color3.fromRGB(155, 85, 240),
-    txt      = Color3.fromRGB(230, 230, 250),
-    txtSub   = Color3.fromRGB(160, 160, 200),
-    txtMute  = Color3.fromRGB(90, 90, 130),
-    tagBg    = Color3.fromRGB(30, 30, 52),
-    badgeBg  = Color3.fromRGB(28, 48, 100),
-    badgeTxt = Color3.fromRGB(130, 185, 255),
+    bg      = Color3.fromRGB(12, 12, 19),
+    sidebar = Color3.fromRGB(16, 16, 26),
+    surface = Color3.fromRGB(21, 21, 34),
+    card    = Color3.fromRGB(26, 26, 42),
+    cardAlt = Color3.fromRGB(22, 22, 36),
+    input   = Color3.fromRGB(15, 15, 26),
+    border  = Color3.fromRGB(45, 45, 70),
+    accent  = Color3.fromRGB(100, 140, 255),
+    accentL = Color3.fromRGB(140, 175, 255),
+    green   = Color3.fromRGB(52, 195, 105),
+    greenDk = Color3.fromRGB(32, 140, 70),
+    red     = Color3.fromRGB(215, 60, 60),
+    redDk   = Color3.fromRGB(150, 35, 35),
+    orange  = Color3.fromRGB(230, 148, 48),
+    purple  = Color3.fromRGB(150, 80, 235),
+    purpleL = Color3.fromRGB(180, 120, 255),
+    txt     = Color3.fromRGB(228, 228, 248),
+    txtSub  = Color3.fromRGB(155, 155, 195),
+    txtMute = Color3.fromRGB(82, 82, 122),
+    tagBg   = Color3.fromRGB(28, 28, 48),
+    badgeBg = Color3.fromRGB(26, 45, 95),
+    badgeTx = Color3.fromRGB(125, 180, 255),
 }
 
--- ─── Main window ──────────────────────────────────────────────────────────────
-local win = Instance.new("Frame")
-win.Name = "Window"
-win.Size = UDim2.new(0, cfg.winW, 0, cfg.winH)
-win.Position = UDim2.new(0.5, -cfg.winW/2, 0.5, -cfg.winH/2)
-win.BackgroundColor3 = T.bg
-win.BorderSizePixel = 0
-win.Active = true
-win.Draggable = true
-win.ClipsDescendants = true
-win.Parent = gui
-Instance.new("UICorner", win).CornerRadius = UDim.new(0, 12)
+-- ═══════════════════════════════════════════════════════════════════════
+-- GUI ROOT
+-- ═══════════════════════════════════════════════════════════════════════
+local gui = Instance.new("ScreenGui")
+gui.Name            = "AutoSendMailbox"
+gui.ResetOnSpawn    = false
+gui.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
+gui.Parent          = LocalPlayer:WaitForChild("PlayerGui")
 
-local winStroke = Instance.new("UIStroke", win)
-winStroke.Color = T.border
+-- ─── Window ──────────────────────────────────────────────────────────
+local win = Instance.new("Frame")
+win.Name             = "Window"
+win.Size             = UDim2.new(0,cfg.winW,0,cfg.winH)
+win.Position         = UDim2.new(0.5,-cfg.winW/2,0.5,-cfg.winH/2)
+win.BackgroundColor3 = T.bg
+win.BorderSizePixel  = 0
+win.Active           = true
+win.Draggable        = true
+win.ClipsDescendants = true
+win.Parent           = gui
+Instance.new("UICorner",win).CornerRadius = UDim.new(0,13)
+
+local winStroke = Instance.new("UIStroke",win)
+winStroke.Color     = T.border
 winStroke.Thickness = 1.5
 
-local glowFrame = Instance.new("Frame", win)
-glowFrame.Size = UDim2.new(1, 0, 0, 2)
-glowFrame.Position = UDim2.new(0, 0, 0, 0)
-glowFrame.BackgroundColor3 = T.accent
-glowFrame.BorderSizePixel = 0
-glowFrame.ZIndex = 5
-local glowGrad = Instance.new("UIGradient", glowFrame)
-glowGrad.Color = ColorSequence.new{
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(100,140,255)),
-    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(155,85,240)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(55,200,110)),
+-- Rainbow top bar
+local topBar = Instance.new("Frame",win)
+topBar.Size             = UDim2.new(1,0,0,3)
+topBar.BackgroundColor3 = T.accent
+topBar.BorderSizePixel  = 0
+topBar.ZIndex           = 10
+local topGrad = Instance.new("UIGradient",topBar)
+topGrad.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0,   Color3.fromRGB(100,140,255)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(150,80,235)),
+    ColorSequenceKeypoint.new(1,   Color3.fromRGB(52,195,105)),
 }
 
--- ─── Title bar ────────────────────────────────────────────────────────────────
-local titleH = 42
-local titleBar = Instance.new("Frame", win)
-titleBar.Size = UDim2.new(1, 0, 0, titleH)
+-- Animate top bar gradient
+task.spawn(function()
+    local t = 0
+    while gui.Parent do
+        t += task.wait(0.016)
+        topGrad.Offset = Vector2.new(math.sin(t*0.4)*0.5,0)
+    end
+end)
+
+-- ─── Title bar ───────────────────────────────────────────────────────
+local TH = 44
+local titleBar = Instance.new("Frame",win)
+titleBar.Size             = UDim2.new(1,0,0,TH)
+titleBar.Position         = UDim2.new(0,0,0,3)
 titleBar.BackgroundColor3 = T.surface
-titleBar.BorderSizePixel = 0
-titleBar.ZIndex = 4
-local tbFix = Instance.new("Frame", titleBar)
-tbFix.Size = UDim2.new(1,0,0,12)
-tbFix.Position = UDim2.new(0,0,1,-12)
+titleBar.BorderSizePixel  = 0
+titleBar.ZIndex           = 4
+Instance.new("UICorner",titleBar).CornerRadius = UDim.new(0,13)
+-- fix bottom corners
+local tbFix = Instance.new("Frame",titleBar)
+tbFix.Size             = UDim2.new(1,0,0,13)
+tbFix.Position         = UDim2.new(0,0,1,-13)
 tbFix.BackgroundColor3 = T.surface
-tbFix.BorderSizePixel = 0
-Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0,12)
-local pillIcon = Instance.new("Frame", titleBar)
-pillIcon.Size = UDim2.new(0, 24, 0, 16)
-pillIcon.Position = UDim2.new(0, 12, 0.5, -8)
-pillIcon.BackgroundColor3 = T.accent
-pillIcon.BorderSizePixel = 0
-Instance.new("UICorner", pillIcon).CornerRadius = UDim.new(1,0)
-local pillGrad = Instance.new("UIGradient", pillIcon)
-pillGrad.Color = ColorSequence.new{
-    ColorSequenceKeypoint.new(0, T.accent),
-    ColorSequenceKeypoint.new(1, T.purple),
-}
-local titleLbl = Instance.new("TextLabel", titleBar)
-titleLbl.Size = UDim2.new(1,-110,1,0)
-titleLbl.Position = UDim2.new(0,44,0,0)
-titleLbl.BackgroundTransparency = 1
-titleLbl.Text = "Auto Send Mailbox"
-titleLbl.TextColor3 = T.txt
-titleLbl.Font = Enum.Font.GothamBold
-titleLbl.TextSize = 14
-titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+tbFix.BorderSizePixel  = 0
 
-local function makeTitleBtn(text, color, xOff)
-    local b = Instance.new("TextButton", titleBar)
-    b.Size = UDim2.new(0,26,0,26)
-    b.Position = UDim2.new(1,xOff,0.5,-13)
-    b.BackgroundColor3 = color
-    b.Text = text
-    b.TextColor3 = Color3.new(1,1,1)
-    b.Font = Enum.Font.GothamBold
-    b.TextSize = 13
-    b.BorderSizePixel = 0
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0,6)
-    b.MouseEnter:Connect(function() TweenService:Create(b,TweenInfo.new(0.12),{BackgroundColor3=color:Lerp(Color3.new(1,1,1),0.15)}):Play() end)
-    b.MouseLeave:Connect(function() TweenService:Create(b,TweenInfo.new(0.12),{BackgroundColor3=color}):Play() end)
+-- Logo pill
+local pill = Instance.new("Frame",titleBar)
+pill.Size             = UDim2.new(0,22,0,14)
+pill.Position         = UDim2.new(0,14,0.5,-7)
+pill.BackgroundColor3 = T.accent
+pill.BorderSizePixel  = 0
+Instance.new("UICorner",pill).CornerRadius = UDim.new(1,0)
+local pillG = Instance.new("UIGradient",pill)
+pillG.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0,T.accent),
+    ColorSequenceKeypoint.new(1,T.purple),
+}
+
+local titleLbl = Instance.new("TextLabel",titleBar)
+titleLbl.Size               = UDim2.new(1,-120,1,0)
+titleLbl.Position           = UDim2.new(0,44,0,0)
+titleLbl.BackgroundTransparency = 1
+titleLbl.Text               = "Auto Send Mailbox"
+titleLbl.TextColor3         = T.txt
+titleLbl.Font               = Enum.Font.GothamBold
+titleLbl.TextSize           = 14
+titleLbl.TextXAlignment     = Enum.TextXAlignment.Left
+
+local function mkTitleBtn(lbl,col,ox)
+    local b = Instance.new("TextButton",titleBar)
+    b.Size             = UDim2.new(0,26,0,26)
+    b.Position         = UDim2.new(1,ox,0.5,-13)
+    b.BackgroundColor3 = col
+    b.Text             = lbl
+    b.TextColor3       = Color3.new(1,1,1)
+    b.Font             = Enum.Font.GothamBold
+    b.TextSize         = 13
+    b.BorderSizePixel  = 0
+    Instance.new("UICorner",b).CornerRadius = UDim.new(0,6)
+    b.MouseEnter:Connect(function() TweenService:Create(b,TweenInfo.new(0.12),{BackgroundColor3=col:Lerp(Color3.new(1,1,1),0.18)}):Play() end)
+    b.MouseLeave:Connect(function() TweenService:Create(b,TweenInfo.new(0.12),{BackgroundColor3=col}):Play() end)
     return b
 end
-local hideBtn  = makeTitleBtn("−", Color3.fromRGB(60,130,65), -64)
-local closeBtn = makeTitleBtn("✕", T.red, -32)
-closeBtn.MouseButton1Click:Connect(function() if cfg.autoSave then saveConfig() end gui:Destroy() end)
 
-local miniBtn = Instance.new("TextButton", gui)
-miniBtn.Size = UDim2.new(0,40,0,40)
-miniBtn.Position = UDim2.new(0,12,0.5,-20)
+local hideBtn  = mkTitleBtn("−",Color3.fromRGB(55,125,60),-64)
+local closeBtn = mkTitleBtn("✕",T.red,-32)
+closeBtn.MouseButton1Click:Connect(function() saveAll() gui:Destroy() end)
+
+-- Mini restore button
+local miniBtn = Instance.new("TextButton",gui)
+miniBtn.Size             = UDim2.new(0,40,0,40)
+miniBtn.Position         = UDim2.new(0,12,0.5,-20)
 miniBtn.BackgroundColor3 = T.accent
-miniBtn.Text = "📬"
-miniBtn.TextSize = 20
-miniBtn.Font = Enum.Font.GothamBold
-miniBtn.BorderSizePixel = 0
-miniBtn.Visible = false
-miniBtn.ZIndex = 20
-Instance.new("UICorner", miniBtn).CornerRadius = UDim.new(0,10)
-local miniStroke = Instance.new("UIStroke", miniBtn)
-miniStroke.Color = T.accentGl
-miniStroke.Thickness = 1.5
+miniBtn.Text             = "📬"
+miniBtn.TextSize         = 20
+miniBtn.Font             = Enum.Font.GothamBold
+miniBtn.BorderSizePixel  = 0
+miniBtn.Visible          = false
+miniBtn.ZIndex           = 20
+Instance.new("UICorner",miniBtn).CornerRadius = UDim.new(0,10)
+Instance.new("UIStroke",miniBtn).Color = T.accentL
 
-local guiVisible = true
+local visible = true
 hideBtn.MouseButton1Click:Connect(function()
-    guiVisible = not guiVisible
-    win.Visible = guiVisible
-    miniBtn.Visible = not guiVisible
+    visible = not visible
+    win.Visible    = visible
+    miniBtn.Visible = not visible
 end)
 miniBtn.MouseButton1Click:Connect(function()
-    guiVisible = true; win.Visible = true; miniBtn.Visible = false
+    visible = true
+    win.Visible    = true
+    miniBtn.Visible = false
 end)
 
--- ─── Layout ───────────────────────────────────────────────────────────────────
-local SIDEBAR_W = 130
-local sidebar = Instance.new("Frame", win)
-sidebar.Size = UDim2.new(0, SIDEBAR_W, 1, -titleH)
-sidebar.Position = UDim2.new(0, 0, 0, titleH)
+-- ─── Sidebar ─────────────────────────────────────────────────────────
+local SW = 130
+local sidebar = Instance.new("Frame",win)
+sidebar.Size             = UDim2.new(0,SW,1,-TH-3)
+sidebar.Position         = UDim2.new(0,0,0,TH+3)
 sidebar.BackgroundColor3 = T.sidebar
-sidebar.BorderSizePixel = 0
-sidebar.ZIndex = 2
-local sideStroke = Instance.new("UIStroke", sidebar)
-sideStroke.Color = T.border; sideStroke.Thickness = 1
-local sideLayout = Instance.new("UIListLayout", sidebar)
-sideLayout.SortOrder = Enum.SortOrder.LayoutOrder
-sideLayout.Padding = UDim.new(0,4)
-local sidePad = Instance.new("UIPadding", sidebar)
-sidePad.PaddingTop=UDim.new(0,10) sidePad.PaddingLeft=UDim.new(0,8)
-sidePad.PaddingRight=UDim.new(0,8) sidePad.PaddingBottom=UDim.new(0,8)
-local menuLbl = Instance.new("TextLabel", sidebar)
-menuLbl.Size = UDim2.new(1,0,0,16); menuLbl.BackgroundTransparency = 1
-menuLbl.Text = "MENU"; menuLbl.TextColor3 = T.txtMute
-menuLbl.Font = Enum.Font.GothamSemibold; menuLbl.TextSize = 9
-menuLbl.TextXAlignment = Enum.TextXAlignment.Left; menuLbl.LayoutOrder = 0
+sidebar.BorderSizePixel  = 0
+sidebar.ZIndex           = 2
+local sideStk = Instance.new("UIStroke",sidebar)
+sideStk.Color = T.border; sideStk.Thickness=1
 
-local contentArea = Instance.new("Frame", win)
-contentArea.Size = UDim2.new(1,-SIDEBAR_W,1,-titleH)
-contentArea.Position = UDim2.new(0,SIDEBAR_W,0,titleH)
-contentArea.BackgroundColor3 = T.bg
-contentArea.BorderSizePixel = 0
-contentArea.ClipsDescendants = true
+local sideL = Instance.new("UIListLayout",sidebar)
+sideL.SortOrder = Enum.SortOrder.LayoutOrder
+sideL.Padding   = UDim.new(0,3)
 
--- ─── Tab factory ──────────────────────────────────────────────────────────────
-local allTabs = {}
+local sideP = Instance.new("UIPadding",sidebar)
+sideP.PaddingTop    = UDim.new(0,10)
+sideP.PaddingLeft   = UDim.new(0,7)
+sideP.PaddingRight  = UDim.new(0,7)
+sideP.PaddingBottom = UDim.new(0,8)
+
+local menuHdr = Instance.new("TextLabel",sidebar)
+menuHdr.Size               = UDim2.new(1,0,0,14)
+menuHdr.BackgroundTransparency = 1
+menuHdr.Text               = "MENU"
+menuHdr.TextColor3         = T.txtMute
+menuHdr.Font               = Enum.Font.GothamSemibold
+menuHdr.TextSize            = 8
+menuHdr.TextXAlignment      = Enum.TextXAlignment.Left
+menuHdr.LayoutOrder         = 0
+
+local verLbl = Instance.new("TextLabel",sidebar)
+verLbl.Size               = UDim2.new(1,0,0,12)
+verLbl.AnchorPoint        = Vector2.new(0,1)
+verLbl.Position           = UDim2.new(0,0,1,-4)
+verLbl.BackgroundTransparency = 1
+verLbl.Text               = "v3.0"
+verLbl.TextColor3         = T.txtMute
+verLbl.Font               = Enum.Font.Gotham
+verLbl.TextSize            = 9
+verLbl.TextXAlignment      = Enum.TextXAlignment.Center
+verLbl.ZIndex              = 3
+
+-- ─── Content area ────────────────────────────────────────────────────
+local content = Instance.new("Frame",win)
+content.Size             = UDim2.new(1,-SW,1,-TH-3)
+content.Position         = UDim2.new(0,SW,0,TH+3)
+content.BackgroundColor3 = T.bg
+content.BorderSizePixel  = 0
+content.ClipsDescendants = true
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- TAB FACTORY
+-- ═══════════════════════════════════════════════════════════════════════
+local allTabs   = {}
 local activeTab = nil
 
-local function makeTabBtn(icon, label, order)
-    local btn = Instance.new("TextButton", sidebar)
-    btn.Size = UDim2.new(1,0,0,40); btn.BackgroundColor3 = T.sidebar
-    btn.BorderSizePixel = 0; btn.Text = ""
-    btn.LayoutOrder = order; btn.AutoButtonColor = false
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0,8)
-    local accentBar = Instance.new("Frame", btn)
-    accentBar.Size = UDim2.new(0,3,0,22); accentBar.Position = UDim2.new(0,0,0.5,-11)
-    accentBar.BackgroundColor3 = T.accent; accentBar.BorderSizePixel = 0; accentBar.Visible = false
-    Instance.new("UICorner", accentBar).CornerRadius = UDim.new(0,2)
-    local iconLbl = Instance.new("TextLabel", btn)
-    iconLbl.Size = UDim2.new(0,26,1,0); iconLbl.Position = UDim2.new(0,10,0,0)
-    iconLbl.BackgroundTransparency = 1; iconLbl.Text = icon
-    iconLbl.TextSize = 15; iconLbl.Font = Enum.Font.GothamBold; iconLbl.TextColor3 = T.txtMute
-    local nameLbl = Instance.new("TextLabel", btn)
-    nameLbl.Size = UDim2.new(1,-40,1,0); nameLbl.Position = UDim2.new(0,38,0,0)
-    nameLbl.BackgroundTransparency = 1; nameLbl.Text = label
-    nameLbl.Font = Enum.Font.GothamSemibold; nameLbl.TextSize = 12
-    nameLbl.TextColor3 = T.txtMute; nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-    local page = Instance.new("ScrollingFrame", contentArea)
-    page.Size = UDim2.new(1,0,1,0); page.BackgroundTransparency = 1
-    page.BorderSizePixel = 0; page.ScrollBarThickness = 6
-    page.ScrollBarImageColor3 = T.border; page.CanvasSize = UDim2.new(0,0,0,0)
-    page.AutomaticCanvasSize = Enum.AutomaticSize.Y; page.Visible = false
-    local pl = Instance.new("UIListLayout", page)
-    pl.SortOrder = Enum.SortOrder.LayoutOrder; pl.Padding = UDim.new(0,10)
-    local pp = Instance.new("UIPadding", page)
-    pp.PaddingTop=UDim.new(0,14) pp.PaddingBottom=UDim.new(0,20)
-    pp.PaddingLeft=UDim.new(0,12) pp.PaddingRight=UDim.new(0,12)
-    local tabData = {btn=btn, page=page, bar=accentBar, icon=iconLbl, name=nameLbl}
-    table.insert(allTabs, tabData)
+local function makeTab(icon, label, order)
+    local btn = Instance.new("TextButton",sidebar)
+    btn.Size             = UDim2.new(1,0,0,38)
+    btn.BackgroundColor3 = T.sidebar
+    btn.BorderSizePixel  = 0
+    btn.Text             = ""
+    btn.LayoutOrder      = order
+    btn.AutoButtonColor  = false
+    Instance.new("UICorner",btn).CornerRadius = UDim.new(0,8)
+
+    local bar = Instance.new("Frame",btn)
+    bar.Size             = UDim2.new(0,3,0,20)
+    bar.Position         = UDim2.new(0,0,0.5,-10)
+    bar.BackgroundColor3 = T.accent
+    bar.BorderSizePixel  = 0
+    bar.Visible          = false
+    Instance.new("UICorner",bar).CornerRadius = UDim.new(0,2)
+
+    local ic = Instance.new("TextLabel",btn)
+    ic.Size               = UDim2.new(0,24,1,0)
+    ic.Position           = UDim2.new(0,8,0,0)
+    ic.BackgroundTransparency = 1
+    ic.Text               = icon
+    ic.TextSize           = 14
+    ic.Font               = Enum.Font.GothamBold
+    ic.TextColor3         = T.txtMute
+
+    local nm = Instance.new("TextLabel",btn)
+    nm.Size               = UDim2.new(1,-36,1,0)
+    nm.Position           = UDim2.new(0,34,0,0)
+    nm.BackgroundTransparency = 1
+    nm.Text               = label
+    nm.Font               = Enum.Font.GothamSemibold
+    nm.TextSize           = 12
+    nm.TextColor3         = T.txtMute
+    nm.TextXAlignment     = Enum.TextXAlignment.Left
+
+    local page = Instance.new("ScrollingFrame",content)
+    page.Size                 = UDim2.new(1,0,1,0)
+    page.BackgroundTransparency = 1
+    page.BorderSizePixel      = 0
+    page.ScrollBarThickness   = 6
+    page.ScrollBarImageColor3 = Color3.fromRGB(60,60,95)
+    page.CanvasSize           = UDim2.new(0,0,0,0)
+    page.AutomaticCanvasSize  = Enum.AutomaticSize.Y
+    page.Visible              = false
+
+    local pl = Instance.new("UIListLayout",page)
+    pl.SortOrder = Enum.SortOrder.LayoutOrder
+    pl.Padding   = UDim.new(0,10)
+
+    local pp = Instance.new("UIPadding",page)
+    pp.PaddingTop    = UDim.new(0,14)
+    pp.PaddingBottom = UDim.new(0,20)
+    pp.PaddingLeft   = UDim.new(0,12)
+    pp.PaddingRight  = UDim.new(0,12)
+
+    local td = {btn=btn,page=page,bar=bar,ic=ic,nm=nm}
+    table.insert(allTabs,td)
+
     btn.MouseButton1Click:Connect(function()
         if activeTab then
             TweenService:Create(activeTab.btn,TweenInfo.new(0.18),{BackgroundColor3=T.sidebar}):Play()
             activeTab.bar.Visible = false
-            activeTab.icon.TextColor3 = T.txtMute
-            activeTab.name.TextColor3 = T.txtMute
-            activeTab.page.Visible = false
+            activeTab.ic.TextColor3 = T.txtMute
+            activeTab.nm.TextColor3 = T.txtMute
+            activeTab.page.Visible  = false
         end
-        activeTab = tabData
+        activeTab = td
         TweenService:Create(btn,TweenInfo.new(0.18),{BackgroundColor3=T.card}):Play()
-        accentBar.Visible = true; iconLbl.TextColor3 = T.txt
-        nameLbl.TextColor3 = T.txt; page.Visible = true
+        bar.Visible     = true
+        ic.TextColor3   = T.txt
+        nm.TextColor3   = T.txt
+        page.Visible    = true
     end)
-    return tabData
+    return td
 end
 
-local mailTab    = makeTabBtn("✉️",  "Mail",     1)
-local outputTab  = makeTabBtn("📋",  "Output",   2)
-local settingTab = makeTabBtn("⚙️",  "Settings", 3)
+local mailTab   = makeTab("✉️","Mail",1)
+local outputTab = makeTab("📋","Output",2)
+local settingTab= makeTab("⚙️","Settings",3)
 
-local verLbl = Instance.new("TextLabel", sidebar)
-verLbl.Size = UDim2.new(1,0,0,14); verLbl.AnchorPoint = Vector2.new(0,1)
-verLbl.Position = UDim2.new(0,0,1,-4); verLbl.BackgroundTransparency = 1
-verLbl.Text = "v3.0"; verLbl.TextColor3 = T.txtMute
-verLbl.Font = Enum.Font.Gotham; verLbl.TextSize = 9
-verLbl.TextXAlignment = Enum.TextXAlignment.Center; verLbl.ZIndex = 3
+-- Activate mail
+mailTab.btn.BackgroundColor3 = T.card
+mailTab.bar.Visible = true
+mailTab.ic.TextColor3 = T.txt
+mailTab.nm.TextColor3 = T.txt
+mailTab.page.Visible  = true
+activeTab = mailTab
 
-mailTab.btn.BackgroundColor3 = T.card; mailTab.bar.Visible = true
-mailTab.icon.TextColor3 = T.txt; mailTab.name.TextColor3 = T.txt
-mailTab.page.Visible = true; activeTab = mailTab
-
--- ─── Widget helpers ───────────────────────────────────────────────────────────
-local function secLabel(txt, order, page)
-    local f = Instance.new("Frame"); f.Size = UDim2.new(1,0,0,16)
-    f.BackgroundTransparency = 1; f.LayoutOrder = order; f.Parent = page
-    local l = Instance.new("TextLabel",f); l.Size = UDim2.new(1,0,1,0)
-    l.BackgroundTransparency = 1; l.Text = txt:upper()
-    l.TextColor3 = T.txtMute; l.Font = Enum.Font.GothamSemibold
-    l.TextSize = 9; l.TextXAlignment = Enum.TextXAlignment.Left
+-- ═══════════════════════════════════════════════════════════════════════
+-- WIDGET HELPERS
+-- ═══════════════════════════════════════════════════════════════════════
+local function secLbl(txt,order,page)
+    local f=Instance.new("Frame"); f.Size=UDim2.new(1,0,0,14)
+    f.BackgroundTransparency=1; f.LayoutOrder=order; f.Parent=page
+    local l=Instance.new("TextLabel",f); l.Size=UDim2.new(1,0,1,0)
+    l.BackgroundTransparency=1; l.Text=txt:upper()
+    l.TextColor3=T.txtMute; l.Font=Enum.Font.GothamSemibold
+    l.TextSize=9; l.TextXAlignment=Enum.TextXAlignment.Left
     return f
 end
 
-local function mkInput(ph, order, page, h)
-    local box = Instance.new("TextBox")
-    box.Size = UDim2.new(1,0,0,h or 36); box.BackgroundColor3 = T.input
-    box.BorderSizePixel = 0; box.Text = ""; box.PlaceholderText = ph
-    box.PlaceholderColor3 = T.txtMute; box.TextColor3 = T.txt
-    box.Font = Enum.Font.Gotham; box.TextSize = 13
-    box.ClearTextOnFocus = false; box.LayoutOrder = order; box.Parent = page
-    Instance.new("UICorner", box).CornerRadius = UDim.new(0,8)
-    local st = Instance.new("UIStroke",box); st.Color=T.border; st.Thickness=1
-    Instance.new("UIPadding",box).PaddingLeft=UDim.new(0,12)
-    box.Focused:Connect(function() TweenService:Create(st,TweenInfo.new(0.15),{Color=T.accent}):Play() end)
-    box.FocusLost:Connect(function() TweenService:Create(st,TweenInfo.new(0.15),{Color=T.border}):Play() end)
-    return box
+local function mkIn(ph,order,page,h)
+    local b=Instance.new("TextBox"); b.Size=UDim2.new(1,0,0,h or 36)
+    b.BackgroundColor3=T.input; b.BorderSizePixel=0; b.Text=""
+    b.PlaceholderText=ph; b.PlaceholderColor3=T.txtMute
+    b.TextColor3=T.txt; b.Font=Enum.Font.Gotham; b.TextSize=13
+    b.ClearTextOnFocus=false; b.LayoutOrder=order; b.Parent=page
+    Instance.new("UICorner",b).CornerRadius=UDim.new(0,8)
+    local st=Instance.new("UIStroke",b); st.Color=T.border; st.Thickness=1
+    Instance.new("UIPadding",b).PaddingLeft=UDim.new(0,12)
+    b.Focused:Connect(function() TweenService:Create(st,TweenInfo.new(0.15),{Color=T.accent}):Play() end)
+    b.FocusLost:Connect(function() TweenService:Create(st,TweenInfo.new(0.15),{Color=T.border}):Play() end)
+    return b
 end
 
-local function mkBtn(txt, color, order, page)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1,0,0,38); btn.BackgroundColor3 = color
-    btn.BorderSizePixel = 0; btn.Text = txt
-    btn.TextColor3 = Color3.new(1,1,1); btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 13; btn.LayoutOrder = order; btn.Parent = page
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0,9)
-    local grad = Instance.new("UIGradient", btn)
-    grad.Color = ColorSequence.new{
-        ColorSequenceKeypoint.new(0, Color3.new(1,1,1):Lerp(color,0.7)),
-        ColorSequenceKeypoint.new(1, color),
-    }
-    grad.Rotation = 90
-    btn.MouseEnter:Connect(function() TweenService:Create(btn,TweenInfo.new(0.15),{BackgroundColor3=color:Lerp(Color3.new(1,1,1),0.1)}):Play() end)
-    btn.MouseLeave:Connect(function() TweenService:Create(btn,TweenInfo.new(0.15),{BackgroundColor3=color}):Play() end)
-    btn.MouseButton1Down:Connect(function() TweenService:Create(btn,TweenInfo.new(0.08),{BackgroundColor3=color:Lerp(Color3.new(0,0,0),0.15)}):Play() end)
-    btn.MouseButton1Up:Connect(function() TweenService:Create(btn,TweenInfo.new(0.08),{BackgroundColor3=color}):Play() end)
-    return btn
+local function mkBtn(txt,col,order,page)
+    local b=Instance.new("TextButton"); b.Size=UDim2.new(1,0,0,38)
+    b.BackgroundColor3=col; b.BorderSizePixel=0; b.Text=txt
+    b.TextColor3=Color3.new(1,1,1); b.Font=Enum.Font.GothamBold
+    b.TextSize=13; b.LayoutOrder=order; b.Parent=page
+    Instance.new("UICorner",b).CornerRadius=UDim.new(0,9)
+    local g=Instance.new("UIGradient",b)
+    g.Color=ColorSequence.new{ColorSequenceKeypoint.new(0,Color3.new(1,1,1):Lerp(col,0.72)),ColorSequenceKeypoint.new(1,col)}
+    g.Rotation=90
+    b.MouseEnter:Connect(function() TweenService:Create(b,TweenInfo.new(0.13),{BackgroundColor3=col:Lerp(Color3.new(1,1,1),0.1)}):Play() end)
+    b.MouseLeave:Connect(function() TweenService:Create(b,TweenInfo.new(0.13),{BackgroundColor3=col}):Play() end)
+    b.MouseButton1Down:Connect(function() TweenService:Create(b,TweenInfo.new(0.07),{BackgroundColor3=col:Lerp(Color3.new(0,0,0),0.12)}):Play() end)
+    b.MouseButton1Up:Connect(function() TweenService:Create(b,TweenInfo.new(0.07),{BackgroundColor3=col}):Play() end)
+    return b
 end
 
-local function mkToggle(labelTxt, order, page)
-    local row = Instance.new("Frame")
-    row.Size = UDim2.new(1,0,0,42); row.BackgroundColor3 = T.card
-    row.BorderSizePixel = 0; row.LayoutOrder = order; row.Parent = page
-    Instance.new("UICorner",row).CornerRadius = UDim.new(0,9)
-    local st = Instance.new("UIStroke",row); st.Color=T.border; st.Thickness=1
-    local lbl = Instance.new("TextLabel",row)
-    lbl.Size = UDim2.new(1,-68,1,0); lbl.Position = UDim2.new(0,14,0,0)
-    lbl.BackgroundTransparency = 1; lbl.Text = labelTxt
-    lbl.TextColor3 = T.txt; lbl.Font = Enum.Font.Gotham
-    lbl.TextSize = 13; lbl.TextXAlignment = Enum.TextXAlignment.Left
-    local pill = Instance.new("Frame",row)
-    pill.Size = UDim2.new(0,46,0,26); pill.Position = UDim2.new(1,-56,0.5,-13)
-    pill.BackgroundColor3 = T.border; pill.BorderSizePixel = 0
-    Instance.new("UICorner",pill).CornerRadius = UDim.new(1,0)
-    local thumb = Instance.new("Frame",pill)
-    thumb.Size = UDim2.new(0,20,0,20); thumb.Position = UDim2.new(0,3,0.5,-10)
-    thumb.BackgroundColor3 = T.txtMute; thumb.BorderSizePixel = 0
-    Instance.new("UICorner",thumb).CornerRadius = UDim.new(1,0)
-    local state = false
-    local hit = Instance.new("TextButton",row)
-    hit.Size = UDim2.new(1,0,1,0); hit.BackgroundTransparency = 1; hit.Text = ""
+local function mkToggle(lbl,order,page)
+    local row=Instance.new("Frame"); row.Size=UDim2.new(1,0,0,40)
+    row.BackgroundColor3=T.card; row.BorderSizePixel=0
+    row.LayoutOrder=order; row.Parent=page
+    Instance.new("UICorner",row).CornerRadius=UDim.new(0,9)
+    local st=Instance.new("UIStroke",row); st.Color=T.border; st.Thickness=1
+
+    local l=Instance.new("TextLabel",row); l.Size=UDim2.new(1,-68,1,0)
+    l.Position=UDim2.new(0,14,0,0); l.BackgroundTransparency=1
+    l.Text=lbl; l.TextColor3=T.txt; l.Font=Enum.Font.Gotham
+    l.TextSize=13; l.TextXAlignment=Enum.TextXAlignment.Left
+
+    local pill=Instance.new("Frame",row); pill.Size=UDim2.new(0,44,0,24)
+    pill.Position=UDim2.new(1,-54,0.5,-12); pill.BackgroundColor3=T.border
+    pill.BorderSizePixel=0
+    Instance.new("UICorner",pill).CornerRadius=UDim.new(1,0)
+
+    local thumb=Instance.new("Frame",pill); thumb.Size=UDim2.new(0,18,0,18)
+    thumb.Position=UDim2.new(0,3,0.5,-9); thumb.BackgroundColor3=T.txtMute
+    thumb.BorderSizePixel=0
+    Instance.new("UICorner",thumb).CornerRadius=UDim.new(1,0)
+
+    local state=false
+    local hit=Instance.new("TextButton",row); hit.Size=UDim2.new(1,0,1,0)
+    hit.BackgroundTransparency=1; hit.Text=""
+
     local function refresh()
         if state then
             TweenService:Create(pill,TweenInfo.new(0.2),{BackgroundColor3=T.accent}):Play()
-            TweenService:Create(thumb,TweenInfo.new(0.2),{Position=UDim2.new(1,-23,0.5,-10),BackgroundColor3=Color3.new(1,1,1)}):Play()
+            TweenService:Create(thumb,TweenInfo.new(0.2),{Position=UDim2.new(1,-21,0.5,-9),BackgroundColor3=Color3.new(1,1,1)}):Play()
         else
             TweenService:Create(pill,TweenInfo.new(0.2),{BackgroundColor3=T.border}):Play()
-            TweenService:Create(thumb,TweenInfo.new(0.2),{Position=UDim2.new(0,3,0.5,-10),BackgroundColor3=T.txtMute}):Play()
+            TweenService:Create(thumb,TweenInfo.new(0.2),{Position=UDim2.new(0,3,0.5,-9),BackgroundColor3=T.txtMute}):Play()
         end
     end
-    hit.MouseButton1Click:Connect(function() state=not state refresh() end)
-    return row, function() return state end, function(v) state=v refresh() end
+    hit.MouseButton1Click:Connect(function() state=not state; refresh() end)
+    return row,function() return state end,function(v) state=v; refresh() end
 end
 
--- ═══════════════════════════════════════════════════════════════════════════════
+-- ═══════════════════════════════════════════════════════════════════════
 -- MAIL PAGE
--- ═══════════════════════════════════════════════════════════════════════════════
+-- ═══════════════════════════════════════════════════════════════════════
 local mp = mailTab.page
 
-secLabel("Recipient", 1, mp)
-local usernameBox = mkInput("Roblox username", 2, mp)
-usernameBox.FocusLost:Connect(function() cfg.username=usernameBox.Text if cfg.autoSave then saveConfig() end end)
+secLbl("Recipient",1,mp)
+local usernameBox = mkIn("Roblox username",2,mp)
+usernameBox.FocusLost:Connect(function() cfg.username=usernameBox.Text end)
 
--- ─── Items card ───────────────────────────────────────────────────────────────
-secLabel("Items to send", 3, mp)
+-- ─── Items card ──────────────────────────────────────────────────────
+secLbl("Items to send",3,mp)
 
-local itemCard = Instance.new("Frame")
-itemCard.Size = UDim2.new(1,0,0,10); itemCard.AutomaticSize = Enum.AutomaticSize.Y
-itemCard.BackgroundColor3 = T.card; itemCard.BorderSizePixel = 0
-itemCard.LayoutOrder = 4; itemCard.Parent = mp
-Instance.new("UICorner",itemCard).CornerRadius = UDim.new(0,10)
-local icStroke = Instance.new("UIStroke",itemCard); icStroke.Color=T.border; icStroke.Thickness=1
+local itemCard=Instance.new("Frame"); itemCard.Size=UDim2.new(1,0,0,10)
+itemCard.AutomaticSize=Enum.AutomaticSize.Y; itemCard.BackgroundColor3=T.card
+itemCard.BorderSizePixel=0; itemCard.LayoutOrder=4; itemCard.Parent=mp
+Instance.new("UICorner",itemCard).CornerRadius=UDim.new(0,10)
+local icStk=Instance.new("UIStroke",itemCard); icStk.Color=T.border; icStk.Thickness=1
 
-local icInner = Instance.new("UIListLayout",itemCard)
-icInner.SortOrder = Enum.SortOrder.LayoutOrder; icInner.Padding = UDim.new(0,0)
+local icLayout=Instance.new("UIListLayout",itemCard)
+icLayout.SortOrder=Enum.SortOrder.LayoutOrder; icLayout.Padding=UDim.new(0,0)
 
-local addRow = Instance.new("Frame",itemCard)
-addRow.Size = UDim2.new(1,0,0,50); addRow.BackgroundTransparency = 1; addRow.LayoutOrder = 1
+-- Add-row header
+local addRow=Instance.new("Frame",itemCard); addRow.Size=UDim2.new(1,0,0,48)
+addRow.BackgroundTransparency=1; addRow.LayoutOrder=1
 
-local nameIn = Instance.new("TextBox",addRow)
-nameIn.Size = UDim2.new(1,-96,0,32); nameIn.Position = UDim2.new(0,10,0.5,-16)
-nameIn.BackgroundColor3 = T.input; nameIn.BorderSizePixel = 0
-nameIn.PlaceholderText = "Item name"; nameIn.PlaceholderColor3 = T.txtMute
-nameIn.Text = ""; nameIn.TextColor3 = T.txt; nameIn.Font = Enum.Font.Gotham
-nameIn.TextSize = 13; nameIn.ClearTextOnFocus = false
-Instance.new("UICorner",nameIn).CornerRadius = UDim.new(0,7)
-local ns = Instance.new("UIStroke",nameIn); ns.Color=T.border; ns.Thickness=1
-Instance.new("UIPadding",nameIn).PaddingLeft=UDim.new(0,10)
-nameIn.Focused:Connect(function() TweenService:Create(ns,TweenInfo.new(0.15),{Color=T.accent}):Play() end)
-nameIn.FocusLost:Connect(function() TweenService:Create(ns,TweenInfo.new(0.15),{Color=T.border}):Play() end)
+local nameIn=Instance.new("TextBox",addRow); nameIn.Size=UDim2.new(1,-98,0,30)
+nameIn.Position=UDim2.new(0,10,0.5,-15); nameIn.BackgroundColor3=T.input
+nameIn.BorderSizePixel=0; nameIn.PlaceholderText="Item name"
+nameIn.PlaceholderColor3=T.txtMute; nameIn.Text=""; nameIn.TextColor3=T.txt
+nameIn.Font=Enum.Font.Gotham; nameIn.TextSize=12; nameIn.ClearTextOnFocus=false
+Instance.new("UICorner",nameIn).CornerRadius=UDim.new(0,7)
+local nsStk=Instance.new("UIStroke",nameIn); nsStk.Color=T.border; nsStk.Thickness=1
+Instance.new("UIPadding",nameIn).PaddingLeft=UDim.new(0,9)
+nameIn.Focused:Connect(function() TweenService:Create(nsStk,TweenInfo.new(0.15),{Color=T.accent}):Play() end)
+nameIn.FocusLost:Connect(function() TweenService:Create(nsStk,TweenInfo.new(0.15),{Color=T.border}):Play() end)
 
-local amtIn = Instance.new("TextBox",addRow)
-amtIn.Size = UDim2.new(0,48,0,32); amtIn.Position = UDim2.new(1,-82,0.5,-16)
-amtIn.BackgroundColor3 = T.input; amtIn.BorderSizePixel = 0
-amtIn.PlaceholderText = "Qty"; amtIn.PlaceholderColor3 = T.txtMute
-amtIn.Text = ""; amtIn.TextColor3 = T.txt; amtIn.Font = Enum.Font.GothamBold
-amtIn.TextSize = 13; amtIn.ClearTextOnFocus = false
-Instance.new("UICorner",amtIn).CornerRadius = UDim.new(0,7)
-local as_ = Instance.new("UIStroke",amtIn); as_.Color=T.border; as_.Thickness=1
-Instance.new("UIPadding",amtIn).PaddingLeft=UDim.new(0,8)
-amtIn.Focused:Connect(function() TweenService:Create(as_,TweenInfo.new(0.15),{Color=T.accent}):Play() end)
-amtIn.FocusLost:Connect(function() TweenService:Create(as_,TweenInfo.new(0.15),{Color=T.border}):Play() end)
+local amtIn=Instance.new("TextBox",addRow); amtIn.Size=UDim2.new(0,46,0,30)
+amtIn.Position=UDim2.new(1,-84,0.5,-15); amtIn.BackgroundColor3=T.input
+amtIn.BorderSizePixel=0; amtIn.PlaceholderText="Qty"; amtIn.PlaceholderColor3=T.txtMute
+amtIn.Text=""; amtIn.TextColor3=T.txt; amtIn.Font=Enum.Font.GothamBold
+amtIn.TextSize=12; amtIn.ClearTextOnFocus=false
+Instance.new("UICorner",amtIn).CornerRadius=UDim.new(0,7)
+local amStk=Instance.new("UIStroke",amtIn); amStk.Color=T.border; amStk.Thickness=1
+Instance.new("UIPadding",amtIn).PaddingLeft=UDim.new(0,7)
+amtIn.Focused:Connect(function() TweenService:Create(amStk,TweenInfo.new(0.15),{Color=T.accent}):Play() end)
+amtIn.FocusLost:Connect(function() TweenService:Create(amStk,TweenInfo.new(0.15),{Color=T.border}):Play() end)
 
-local addBtn = Instance.new("TextButton",addRow)
-addBtn.Size = UDim2.new(0,32,0,32); addBtn.Position = UDim2.new(1,-38,0.5,-16)
-addBtn.BackgroundColor3 = T.green; addBtn.Text = "+"
-addBtn.TextColor3 = Color3.new(1,1,1); addBtn.Font = Enum.Font.GothamBold
-addBtn.TextSize = 18; addBtn.BorderSizePixel = 0
-Instance.new("UICorner",addBtn).CornerRadius = UDim.new(0,7)
+local addBtn=Instance.new("TextButton",addRow); addBtn.Size=UDim2.new(0,30,0,30)
+addBtn.Position=UDim2.new(1,-36,0.5,-15); addBtn.BackgroundColor3=T.green
+addBtn.Text="+"; addBtn.TextColor3=Color3.new(1,1,1); addBtn.Font=Enum.Font.GothamBold
+addBtn.TextSize=18; addBtn.BorderSizePixel=0
+Instance.new("UICorner",addBtn).CornerRadius=UDim.new(0,7)
 
-local addDiv = Instance.new("Frame",itemCard)
-addDiv.Size = UDim2.new(1,-20,0,1); addDiv.Position = UDim2.new(0,10,0,0)
-addDiv.BackgroundColor3 = T.border; addDiv.BorderSizePixel = 0; addDiv.LayoutOrder = 2
+-- divider
+local addDiv=Instance.new("Frame",itemCard); addDiv.Size=UDim2.new(1,-20,0,1)
+addDiv.BackgroundColor3=T.border; addDiv.BorderSizePixel=0; addDiv.LayoutOrder=2
 
-local itemList = Instance.new("Frame",itemCard)
-itemList.Name = "ItemList"; itemList.Size = UDim2.new(1,0,0,0)
-itemList.AutomaticSize = Enum.AutomaticSize.Y; itemList.BackgroundTransparency = 1
-itemList.BorderSizePixel = 0; itemList.LayoutOrder = 3
+-- Error label
+local errLbl=Instance.new("TextLabel",itemCard); errLbl.Size=UDim2.new(1,-20,0,16)
+errLbl.BackgroundTransparency=1; errLbl.Text=""
+errLbl.TextColor3=T.red; errLbl.Font=Enum.Font.GothamSemibold
+errLbl.TextSize=10; errLbl.LayoutOrder=3
+Instance.new("UIPadding",errLbl).PaddingLeft=UDim.new(0,10)
 
-local ilLayout = Instance.new("UIListLayout",itemList)
-ilLayout.SortOrder = Enum.SortOrder.LayoutOrder; ilLayout.Padding = UDim.new(0,0)
+local function showErr(msg)
+    errLbl.Text=msg
+    task.delay(2.5,function() if errLbl and errLbl.Parent then errLbl.Text="" end end)
+end
 
-local emptyLbl = Instance.new("TextLabel",itemList)
-emptyLbl.Size = UDim2.new(1,0,0,34); emptyLbl.BackgroundTransparency = 1
-emptyLbl.Text = "No items added yet."; emptyLbl.TextColor3 = T.txtMute
-emptyLbl.Font = Enum.Font.Gotham; emptyLbl.TextSize = 12; emptyLbl.LayoutOrder = 0
+-- Item list container
+local itemList=Instance.new("Frame",itemCard); itemList.Name="ItemList"
+itemList.Size=UDim2.new(1,0,0,0); itemList.AutomaticSize=Enum.AutomaticSize.Y
+itemList.BackgroundTransparency=1; itemList.BorderSizePixel=0; itemList.LayoutOrder=4
 
+local ilL=Instance.new("UIListLayout",itemList)
+ilL.SortOrder=Enum.SortOrder.LayoutOrder; ilL.Padding=UDim.new(0,0)
+
+local emptyLbl=Instance.new("TextLabel",itemList); emptyLbl.Size=UDim2.new(1,0,0,32)
+emptyLbl.BackgroundTransparency=1; emptyLbl.Text="No items added yet."
+emptyLbl.TextColor3=T.txtMute; emptyLbl.Font=Enum.Font.Gotham
+emptyLbl.TextSize=12; emptyLbl.LayoutOrder=0
+
+-- itemEntries: each = { cfgEntry={name,amount,enabled}, frame, dot, amtBox, numLbl, enabledState }
 local itemEntries = {}
-local statusDots  = {}
 
-local function refreshEmpty() emptyLbl.Visible = #itemEntries==0 end
+local function refreshEmpty() emptyLbl.Visible=#itemEntries==0 end
 
-local function rebuildCfg()
-    cfg.items = {}
+local function syncCfgItems()
+    cfg.items={}
     for _,e in ipairs(itemEntries) do
-        table.insert(cfg.items,{name=e.name,amount=math.min(tonumber(e.amt) or 1, cfg.maxItems)})
+        table.insert(cfg.items,{name=e.cfgEntry.name, amount=e.cfgEntry.amount, enabled=e.cfgEntry.enabled})
     end
 end
 
--- ─── Status dot pulse animation ───────────────────────────────────────────────
--- Dots loop green (has item) / red (missing) instead of going static
-local function animateDot(dot, hasItem)
-    if not dot or not dot.Parent then return end
-    dot.BackgroundColor3 = hasItem and T.green or T.red
-    -- Pulse: scale up slightly and back
-    task.spawn(function()
-        for _ = 1, 2 do
-            if not dot or not dot.Parent then return end
-            TweenService:Create(dot, TweenInfo.new(0.3, Enum.EasingStyle.Sine), {
-                Size = UDim2.new(0, hasItem and 10 or 9, 0, hasItem and 10 or 9)
-            }):Play()
-            task.wait(0.35)
-            if not dot or not dot.Parent then return end
-            TweenService:Create(dot, TweenInfo.new(0.3, Enum.EasingStyle.Sine), {
-                Size = UDim2.new(0, 7, 0, 7)
-            }):Play()
-            task.wait(0.35)
-        end
-    end)
-end
-
-local function updateItemStatuses(inv)
-    for _,sd in ipairs(statusDots) do
-        if sd.dot and sd.dot.Parent then
-            local has = inv and hasItemInInv(inv, sd.name)
-            -- Only animate if state changed
-            local wasGreen = sd.dot.BackgroundColor3 == T.green
-            if (has and not wasGreen) or (not has and wasGreen) then
-                animateDot(sd.dot, has)
-            else
-                sd.dot.BackgroundColor3 = has and T.green or T.red
-            end
+local function updateDots(inv)
+    for _,e in ipairs(itemEntries) do
+        if e.dot and e.dot.Parent then
+            local has = inv and hasItem(inv,e.cfgEntry.name)
+            TweenService:Create(e.dot,TweenInfo.new(0.3),{BackgroundColor3=has and T.green or T.red}):Play()
         end
     end
 end
 
-local function addItemEntry(name, amt)
+local function addItemRow(name, amount, enabled)
     if name=="" then return end
-    amt = math.min(math.max(1,math.floor(tonumber(amt) or 1)), cfg.maxItems)
+    amount  = math.clamp(math.floor(tonumber(amount) or 1),1,cfg.maxAmt)
+    if enabled==nil then enabled=true end
 
     local idx = #itemEntries+1
     local row = Instance.new("Frame",itemList)
-    row.Size = UDim2.new(1,0,0,36)
+    row.Size             = UDim2.new(1,0,0,38)
     row.BackgroundColor3 = (idx%2==0) and T.card or T.tagBg
-    row.BorderSizePixel = 0; row.LayoutOrder = idx
+    row.BorderSizePixel  = 0
+    row.LayoutOrder      = idx
 
-    local numLbl = Instance.new("TextLabel",row)
-    numLbl.Size = UDim2.new(0,22,1,0); numLbl.Position = UDim2.new(0,8,0,0)
-    numLbl.BackgroundTransparency = 1; numLbl.Text = tostring(idx).."."
-    numLbl.TextColor3 = T.txtMute; numLbl.Font = Enum.Font.GothamSemibold
-    numLbl.TextSize = 11; numLbl.TextXAlignment = Enum.TextXAlignment.Right
+    -- accent left bar
+    local abar=Instance.new("Frame",row); abar.Size=UDim2.new(0,3,0,20)
+    abar.Position=UDim2.new(0,0,0.5,-10); abar.BackgroundColor3=T.accent
+    abar.BorderSizePixel=0
+    Instance.new("UICorner",abar).CornerRadius=UDim.new(0,2)
 
-    -- Status dot - starts grey, updates on inventory check
-    local dot = Instance.new("Frame",row)
-    dot.Size = UDim2.new(0,7,0,7); dot.Position = UDim2.new(0,34,0.5,-3.5)
-    dot.BackgroundColor3 = T.txtMute; dot.BorderSizePixel = 0
-    Instance.new("UICorner",dot).CornerRadius = UDim.new(1,0)
+    -- number
+    local numL=Instance.new("TextLabel",row); numL.Size=UDim2.new(0,20,1,0)
+    numL.Position=UDim2.new(0,7,0,0); numL.BackgroundTransparency=1
+    numL.Text=tostring(idx).."."; numL.TextColor3=T.txtMute
+    numL.Font=Enum.Font.GothamSemibold; numL.TextSize=10
+    numL.TextXAlignment=Enum.TextXAlignment.Right
 
-    local nameLbl2 = Instance.new("TextLabel",row)
-    nameLbl2.Size = UDim2.new(1,-120,1,0); nameLbl2.Position = UDim2.new(0,46,0,0)
-    nameLbl2.BackgroundTransparency = 1; nameLbl2.Text = name
-    nameLbl2.TextColor3 = T.txt; nameLbl2.Font = Enum.Font.GothamSemibold
-    nameLbl2.TextSize = 13; nameLbl2.TextXAlignment = Enum.TextXAlignment.Left
-    nameLbl2.TextTruncate = Enum.TextTruncate.AtEnd
+    -- inventory dot
+    local dot=Instance.new("Frame",row); dot.Size=UDim2.new(0,7,0,7)
+    dot.Position=UDim2.new(0,31,0.5,-3.5); dot.BackgroundColor3=T.txtMute
+    dot.BorderSizePixel=0
+    Instance.new("UICorner",dot).CornerRadius=UDim.new(1,0)
 
-    local badge = Instance.new("Frame",row)
-    badge.Size = UDim2.new(0,44,0,22); badge.Position = UDim2.new(1,-72,0.5,-11)
-    badge.BackgroundColor3 = T.badgeBg; badge.BorderSizePixel = 0
-    Instance.new("UICorner",badge).CornerRadius = UDim.new(0,5)
-    local badgeLbl = Instance.new("TextLabel",badge)
-    badgeLbl.Size = UDim2.new(1,0,1,0); badgeLbl.BackgroundTransparency = 1
-    badgeLbl.Text = "×"..tostring(amt); badgeLbl.TextColor3 = T.badgeTxt
-    badgeLbl.Font = Enum.Font.GothamBold; badgeLbl.TextSize = 11
+    -- item name label
+    local nmL=Instance.new("TextLabel",row); nmL.Size=UDim2.new(1,-195,1,0)
+    nmL.Position=UDim2.new(0,43,0,0); nmL.BackgroundTransparency=1
+    nmL.Text=name; nmL.TextColor3=T.txt; nmL.Font=Enum.Font.GothamSemibold
+    nmL.TextSize=12; nmL.TextXAlignment=Enum.TextXAlignment.Left
+    nmL.TextTruncate=Enum.TextTruncate.AtEnd
 
-    local remBtn = Instance.new("TextButton",row)
-    remBtn.Size = UDim2.new(0,24,0,24); remBtn.Position = UDim2.new(1,-26,0.5,-12)
-    remBtn.BackgroundColor3 = Color3.fromRGB(70,25,25); remBtn.Text = "✕"
-    remBtn.TextColor3 = Color3.fromRGB(220,90,90); remBtn.Font = Enum.Font.GothamBold
-    remBtn.TextSize = 10; remBtn.BorderSizePixel = 0
-    Instance.new("UICorner",remBtn).CornerRadius = UDim.new(0,5)
-
-    local entry = {frame=row, name=name, amt=amt, dot=dot}
-    table.insert(itemEntries, entry)
-    table.insert(statusDots, {dot=dot, name=name})
-    refreshEmpty(); rebuildCfg()
-
-    -- Immediate dot update if we can
-    task.spawn(function()
-        local ok, inv = pcall(getInv)
-        if ok and inv then
-            local has = hasItemInInv(inv, name)
-            dot.BackgroundColor3 = has and T.green or T.red
+    -- editable qty box
+    local qtyBox=Instance.new("TextBox",row); qtyBox.Size=UDim2.new(0,44,0,26)
+    qtyBox.Position=UDim2.new(1,-150,0.5,-13); qtyBox.BackgroundColor3=T.badgeBg
+    qtyBox.BorderSizePixel=0; qtyBox.Text=tostring(amount)
+    qtyBox.TextColor3=T.badgeTx; qtyBox.Font=Enum.Font.GothamBold
+    qtyBox.TextSize=11; qtyBox.ClearTextOnFocus=false
+    Instance.new("UICorner",qtyBox).CornerRadius=UDim.new(0,5)
+    Instance.new("UIPadding",qtyBox).PaddingLeft=UDim.new(0,6)
+    local qSt=Instance.new("UIStroke",qtyBox); qSt.Color=T.border; qSt.Thickness=1
+    qtyBox.Focused:Connect(function() TweenService:Create(qSt,TweenInfo.new(0.15),{Color=T.accent}):Play() end)
+    qtyBox.FocusLost:Connect(function()
+        TweenService:Create(qSt,TweenInfo.new(0.15),{Color=T.border}):Play()
+        local v=tonumber(qtyBox.Text)
+        if v then
+            v=math.clamp(math.floor(v),1,cfg.maxAmt)
+            qtyBox.Text=tostring(v)
         end
+        -- find entry and update
+        for _,e in ipairs(itemEntries) do
+            if e.qtyBox==qtyBox then e.cfgEntry.amount=tonumber(qtyBox.Text) or 1 break end
+        end
+        syncCfgItems(); saveAll()
     end)
+
+    -- enable mini-toggle (checkbox style)
+    local enBtn=Instance.new("TextButton",row); enBtn.Size=UDim2.new(0,28,0,26)
+    enBtn.Position=UDim2.new(1,-98,0.5,-13); enBtn.BorderSizePixel=0
+    enBtn.Font=Enum.Font.GothamBold; enBtn.TextSize=13
+    Instance.new("UICorner",enBtn).CornerRadius=UDim.new(0,6)
+
+    local enState = enabled
+    local function refreshEn()
+        if enState then
+            enBtn.BackgroundColor3=Color3.fromRGB(30,70,40)
+            enBtn.TextColor3=T.green; enBtn.Text="✓"
+            abar.BackgroundColor3=T.green
+        else
+            enBtn.BackgroundColor3=Color3.fromRGB(60,28,28)
+            enBtn.TextColor3=T.red; enBtn.Text="✕"
+            abar.BackgroundColor3=T.red
+        end
+    end
+    refreshEn()
+    enBtn.MouseButton1Click:Connect(function()
+        enState=not enState; refreshEn()
+        for _,e in ipairs(itemEntries) do
+            if e.enBtn==enBtn then e.cfgEntry.enabled=enState break end
+        end
+        syncCfgItems()
+    end)
+
+    -- remove button
+    local remBtn=Instance.new("TextButton",row); remBtn.Size=UDim2.new(0,24,0,24)
+    remBtn.Position=UDim2.new(1,-28,0.5,-12); remBtn.BackgroundColor3=Color3.fromRGB(65,22,22)
+    remBtn.Text="✕"; remBtn.TextColor3=Color3.fromRGB(210,80,80)
+    remBtn.Font=Enum.Font.GothamBold; remBtn.TextSize=10; remBtn.BorderSizePixel=0
+    Instance.new("UICorner",remBtn).CornerRadius=UDim.new(0,5)
+
+    local cfgEntry={name=name,amount=amount,enabled=enState}
+    local entryData={frame=row,dot=dot,qtyBox=qtyBox,enBtn=enBtn,numLbl=numL,cfgEntry=cfgEntry}
+    table.insert(itemEntries,entryData)
+    syncCfgItems(); refreshEmpty()
 
     remBtn.MouseButton1Click:Connect(function()
         row:Destroy()
-        for i,e in ipairs(itemEntries) do if e==entry then table.remove(itemEntries,i) break end end
-        for i,sd in ipairs(statusDots) do if sd.dot==dot then table.remove(statusDots,i) break end end
-        for i2,e2 in ipairs(itemEntries) do
-            for _,ch in ipairs(e2.frame:GetChildren()) do
-                if ch:IsA("TextLabel") and ch.TextXAlignment==Enum.TextXAlignment.Right then
-                    ch.Text = tostring(i2).."."; break
-                end
-            end
-        end
-        rebuildCfg(); refreshEmpty()
-        if cfg.autoSave then saveConfig() end
+        for i,e in ipairs(itemEntries) do if e==entryData then table.remove(itemEntries,i) break end end
+        -- renumber
+        for i2,e2 in ipairs(itemEntries) do e2.numLbl.Text=tostring(i2).."." end
+        syncCfgItems(); refreshEmpty(); saveAll()
     end)
 
-    if cfg.autoSave then saveConfig() end
-    return entry
+    return entryData
 end
 
-local qtyErrorLbl = Instance.new("TextLabel", itemCard)
-qtyErrorLbl.Size = UDim2.new(1,-20,0,18); qtyErrorLbl.BackgroundTransparency = 1
-qtyErrorLbl.Text = ""; qtyErrorLbl.TextColor3 = T.red
-qtyErrorLbl.Font = Enum.Font.GothamSemibold; qtyErrorLbl.TextSize = 11
-qtyErrorLbl.TextXAlignment = Enum.TextXAlignment.Left; qtyErrorLbl.LayoutOrder = 4
-Instance.new("UIPadding", qtyErrorLbl).PaddingLeft = UDim.new(0,10)
-
-local function showQtyError(msg)
-    qtyErrorLbl.Text = msg
-    task.delay(2.5, function() if qtyErrorLbl and qtyErrorLbl.Parent then qtyErrorLbl.Text="" end end)
+local function tryAdd()
+    local n=nameIn.Text:match("^%s*(.-)%s*$")
+    local a=amtIn.Text
+    if n=="" then showErr("⚠  Enter an item name.") return end
+    local numA=tonumber(a)
+    if not numA or a=="" then showErr("⚠  Enter a valid quantity.") return end
+    if numA>100 then showErr("⚠  Max quantity is 100.") return end
+    addItemRow(n,a,true)
+    nameIn.Text=""; amtIn.Text=""
+    saveAll()
 end
 
-addBtn.MouseButton1Click:Connect(function()
-    local n = nameIn.Text:match("^%s*(.-)%s*$")
-    local a = amtIn.Text
-    if n~="" then
-        local numA = tonumber(a)
-        if not numA or a=="" then showQtyError("⚠ Enter a valid quantity!") return
-        elseif numA>100 then showQtyError("⚠ Quantity cannot exceed 100!") return end
-        addItemEntry(n,a); nameIn.Text="" amtIn.Text=""
-    end
-end)
-nameIn.FocusLost:Connect(function(enter)
-    if enter then
-        local n=nameIn.Text:match("^%s*(.-)%s*$")
-        if n~="" then
-            local a=amtIn.Text; local numA=tonumber(a)
-            if not numA or a=="" then showQtyError("⚠ Enter a valid quantity!") return
-            elseif numA>100 then showQtyError("⚠ Quantity cannot exceed 100!") return end
-            addItemEntry(n,a) nameIn.Text="" amtIn.Text=""
-        end
-    end
-end)
+addBtn.MouseButton1Click:Connect(tryAdd)
+nameIn.FocusLost:Connect(function(enter) if enter then tryAdd() end end)
 
-secLabel("Note (optional)", 5, mp)
-local noteBox = mkInput("Mail note...", 6, mp)
-noteBox.FocusLost:Connect(function() cfg.note=noteBox.Text if cfg.autoSave then saveConfig() end end)
+-- ─── Note & interval ─────────────────────────────────────────────────
+secLbl("Note (optional)",5,mp)
+local noteBox=mkIn("Mail note...",6,mp)
+noteBox.FocusLost:Connect(function() cfg.note=noteBox.Text end)
 
-secLabel("Auto send interval", 7, mp)
-local intRow = Instance.new("Frame")
-intRow.Size = UDim2.new(1,0,0,36); intRow.BackgroundTransparency = 1
-intRow.LayoutOrder = 8; intRow.Parent = mp
-local intBox = Instance.new("TextBox",intRow)
-intBox.Size = UDim2.new(0,80,1,0); intBox.BackgroundColor3 = T.input
-intBox.BorderSizePixel = 0; intBox.Text = "10"; intBox.TextColor3 = T.txt
-intBox.Font = Enum.Font.GothamBold; intBox.TextSize = 14; intBox.ClearTextOnFocus = false
-Instance.new("UICorner",intBox).CornerRadius = UDim.new(0,8)
-local intSt = Instance.new("UIStroke",intBox); intSt.Color=T.border; intSt.Thickness=1
+secLbl("Auto send interval",7,mp)
+local intRowF=Instance.new("Frame"); intRowF.Size=UDim2.new(1,0,0,34)
+intRowF.BackgroundTransparency=1; intRowF.LayoutOrder=8; intRowF.Parent=mp
+
+local intBox=Instance.new("TextBox",intRowF); intBox.Size=UDim2.new(0,76,1,0)
+intBox.BackgroundColor3=T.input; intBox.BorderSizePixel=0; intBox.Text="10"
+intBox.TextColor3=T.txt; intBox.Font=Enum.Font.GothamBold; intBox.TextSize=14
+intBox.ClearTextOnFocus=false
+Instance.new("UICorner",intBox).CornerRadius=UDim.new(0,8)
+local iSt=Instance.new("UIStroke",intBox); iSt.Color=T.border; iSt.Thickness=1
 Instance.new("UIPadding",intBox).PaddingLeft=UDim.new(0,12)
-intBox.Focused:Connect(function() TweenService:Create(intSt,TweenInfo.new(0.15),{Color=T.accent}):Play() end)
+intBox.Focused:Connect(function() TweenService:Create(iSt,TweenInfo.new(0.15),{Color=T.accent}):Play() end)
 intBox.FocusLost:Connect(function()
-    TweenService:Create(intSt,TweenInfo.new(0.15),{Color=T.border}):Play()
+    TweenService:Create(iSt,TweenInfo.new(0.15),{Color=T.border}):Play()
     local v=tonumber(intBox.Text)
     if v and v>=1 then cfg.interval=v else intBox.Text=tostring(cfg.interval) end
-    if cfg.autoSave then saveConfig() end
 end)
-local intLbl = Instance.new("TextLabel",intRow)
-intLbl.Size = UDim2.new(1,-90,1,0); intLbl.Position = UDim2.new(0,88,0,0)
-intLbl.BackgroundTransparency = 1; intLbl.Text = "seconds between sends"
-intLbl.TextColor3 = T.txtMute; intLbl.Font = Enum.Font.Gotham
-intLbl.TextSize = 12; intLbl.TextXAlignment = Enum.TextXAlignment.Left
 
-local _, getAutoSend, setAutoSend = mkToggle("Auto Send", 9, mp)
-local sendOnceBtn = mkBtn("▶   Send Once",       T.accent, 10, mp)
-local autoSendBtn = mkBtn("⏵   Start Auto Send", T.green,  11, mp)
+local intSufL=Instance.new("TextLabel",intRowF); intSufL.Size=UDim2.new(1,-86,1,0)
+intSufL.Position=UDim2.new(0,84,0,0); intSufL.BackgroundTransparency=1
+intSufL.Text="seconds between sends"; intSufL.TextColor3=T.txtMute
+intSufL.Font=Enum.Font.Gotham; intSufL.TextSize=12
+intSufL.TextXAlignment=Enum.TextXAlignment.Left
 
-local logBar = Instance.new("Frame")
-logBar.Size = UDim2.new(1,0,0,36); logBar.BackgroundColor3 = T.card
-logBar.BorderSizePixel = 0; logBar.LayoutOrder = 12; logBar.Parent = mp
-Instance.new("UICorner",logBar).CornerRadius = UDim.new(0,8)
-Instance.new("UIStroke",logBar).Color = T.border
-local logDot = Instance.new("Frame",logBar)
-logDot.Size = UDim2.new(0,8,0,8); logDot.Position = UDim2.new(0,12,0.5,-4)
-logDot.BackgroundColor3 = T.green; logDot.BorderSizePixel = 0
-Instance.new("UICorner",logDot).CornerRadius = UDim.new(1,0)
-local logLbl = Instance.new("TextLabel",logBar)
-logLbl.Size = UDim2.new(1,-30,1,0); logLbl.Position = UDim2.new(0,28,0,0)
-logLbl.BackgroundTransparency = 1; logLbl.Text = "Idle — ready."
-logLbl.TextColor3 = T.txtSub; logLbl.Font = Enum.Font.Gotham
-logLbl.TextSize = 12; logLbl.TextXAlignment = Enum.TextXAlignment.Left
-logLbl.TextTruncate = Enum.TextTruncate.AtEnd
+-- Auto Send toggle  (no extra "Start Auto Send" big button)
+local _, getAutoSend, setAutoSend = mkToggle("Auto Send",9,mp)
 
-local function log(msg, isErr)
-    logLbl.Text = msg
-    local col = isErr and T.red or T.green
-    TweenService:Create(logDot,TweenInfo.new(0.2),{BackgroundColor3=col}):Play()
-    logLbl.TextColor3 = isErr and Color3.fromRGB(240,140,140) or T.txtSub
+-- Send Once button
+local sendOnceBtn = mkBtn("▶   Send Once",T.accent,10,mp)
+
+-- Claim button
+local claimBtn = mkBtn("📥   Claim Mail Now",T.purple,11,mp)
+
+-- Log bar
+local logBar=Instance.new("Frame"); logBar.Size=UDim2.new(1,0,0,34)
+logBar.BackgroundColor3=T.card; logBar.BorderSizePixel=0
+logBar.LayoutOrder=12; logBar.Parent=mp
+Instance.new("UICorner",logBar).CornerRadius=UDim.new(0,8)
+Instance.new("UIStroke",logBar).Color=T.border
+
+local logDot=Instance.new("Frame",logBar); logDot.Size=UDim2.new(0,8,0,8)
+logDot.Position=UDim2.new(0,12,0.5,-4); logDot.BackgroundColor3=T.green
+logDot.BorderSizePixel=0
+Instance.new("UICorner",logDot).CornerRadius=UDim.new(1,0)
+
+local logLbl=Instance.new("TextLabel",logBar); logLbl.Size=UDim2.new(1,-30,1,0)
+logLbl.Position=UDim2.new(0,28,0,0); logLbl.BackgroundTransparency=1
+logLbl.Text="Idle — ready."; logLbl.TextColor3=T.txtSub
+logLbl.Font=Enum.Font.Gotham; logLbl.TextSize=12
+logLbl.TextXAlignment=Enum.TextXAlignment.Left
+logLbl.TextTruncate=Enum.TextTruncate.AtEnd
+
+local function setLog(msg,isErr)
+    logLbl.Text=msg
+    TweenService:Create(logDot,TweenInfo.new(0.2),{BackgroundColor3=isErr and T.red or T.green}):Play()
+    logLbl.TextColor3 = isErr and Color3.fromRGB(240,130,130) or T.txtSub
 end
 
--- ═══════════════════════════════════════════════════════════════════════════════
+-- ═══════════════════════════════════════════════════════════════════════
 -- OUTPUT PAGE
--- ═══════════════════════════════════════════════════════════════════════════════
+-- ═══════════════════════════════════════════════════════════════════════
 local op = outputTab.page
-secLabel("Send history (last 10)", 1, op)
-local outListFrame = Instance.new("Frame")
-outListFrame.Size = UDim2.new(1,0,0,0); outListFrame.AutomaticSize = Enum.AutomaticSize.Y
-outListFrame.BackgroundTransparency = 1; outListFrame.BorderSizePixel = 0
-outListFrame.LayoutOrder = 2; outListFrame.Parent = op
-local outLayout = Instance.new("UIListLayout",outListFrame)
-outLayout.SortOrder = Enum.SortOrder.LayoutOrder; outLayout.Padding = UDim.new(0,6)
-local noHistLbl = Instance.new("TextLabel",outListFrame)
-noHistLbl.Size = UDim2.new(1,0,0,40); noHistLbl.BackgroundTransparency = 1
-noHistLbl.Text = "No sends yet."; noHistLbl.TextColor3 = T.txtMute
-noHistLbl.Font = Enum.Font.Gotham; noHistLbl.TextSize = 12; noHistLbl.LayoutOrder = 0
-local outEntryFrames = {}
+secLbl("Send history (last 10)",1,op)
+
+local outList=Instance.new("Frame"); outList.Size=UDim2.new(1,0,0,0)
+outList.AutomaticSize=Enum.AutomaticSize.Y; outList.BackgroundTransparency=1
+outList.BorderSizePixel=0; outList.LayoutOrder=2; outList.Parent=op
+
+local outLL=Instance.new("UIListLayout",outList)
+outLL.SortOrder=Enum.SortOrder.LayoutOrder; outLL.Padding=UDim.new(0,6)
+
+local noHistL=Instance.new("TextLabel",outList); noHistL.Size=UDim2.new(1,0,0,38)
+noHistL.BackgroundTransparency=1; noHistL.Text="No sends yet."
+noHistL.TextColor3=T.txtMute; noHistL.Font=Enum.Font.Gotham
+noHistL.TextSize=12; noHistL.LayoutOrder=0
+
+local outFrames={}
+
 local function rebuildOutput()
-    for _,f in ipairs(outEntryFrames) do f:Destroy() end
-    outEntryFrames = {}; noHistLbl.Visible = #outputLog==0
+    for _,f in ipairs(outFrames) do f:Destroy() end
+    outFrames={}
+    noHistL.Visible=#outputLog==0
     for idx,entry in ipairs(outputLog) do
-        local card = Instance.new("Frame",outListFrame)
-        card.Size = UDim2.new(1,0,0,0); card.AutomaticSize = Enum.AutomaticSize.Y
-        card.BackgroundColor3 = T.card; card.BorderSizePixel = 0; card.LayoutOrder = idx
-        Instance.new("UICorner",card).CornerRadius = UDim.new(0,9)
-        local cst = Instance.new("UIStroke",card)
-        cst.Color = entry.success and Color3.fromRGB(40,80,50) or Color3.fromRGB(80,30,30); cst.Thickness=1
-        local cLayout = Instance.new("UIListLayout",card)
-        cLayout.SortOrder = Enum.SortOrder.LayoutOrder; cLayout.Padding = UDim.new(0,0)
-        local cPad = Instance.new("UIPadding",card)
-        cPad.PaddingLeft=UDim.new(0,12) cPad.PaddingRight=UDim.new(0,12)
-        cPad.PaddingTop=UDim.new(0,8) cPad.PaddingBottom=UDim.new(0,8)
-        local hdr = Instance.new("Frame",card)
-        hdr.Size = UDim2.new(1,0,0,20); hdr.BackgroundTransparency=1; hdr.LayoutOrder=1
-        local statusDot2 = Instance.new("Frame",hdr)
-        statusDot2.Size = UDim2.new(0,9,0,9); statusDot2.Position = UDim2.new(0,0,0.5,-4.5)
-        statusDot2.BackgroundColor3 = entry.success and T.green or T.red; statusDot2.BorderSizePixel=0
-        Instance.new("UICorner",statusDot2).CornerRadius = UDim.new(1,0)
-        local toLabel = Instance.new("TextLabel",hdr)
-        toLabel.Size = UDim2.new(1,-80,1,0); toLabel.Position = UDim2.new(0,16,0,0)
-        toLabel.BackgroundTransparency = 1; toLabel.Text = "→ "..entry.to
-        toLabel.TextColor3 = T.txt; toLabel.Font = Enum.Font.GothamBold
-        toLabel.TextSize = 13; toLabel.TextXAlignment = Enum.TextXAlignment.Left
-        local timeLbl2 = Instance.new("TextLabel",hdr)
-        timeLbl2.Size = UDim2.new(0,70,1,0); timeLbl2.Position = UDim2.new(1,-70,0,0)
-        timeLbl2.BackgroundTransparency = 1; timeLbl2.Text = entry.time
-        timeLbl2.TextColor3 = T.txtMute; timeLbl2.Font = Enum.Font.Code
-        timeLbl2.TextSize = 11; timeLbl2.TextXAlignment = Enum.TextXAlignment.Right
-        if #entry.items > 0 then
-            local itemsStr = ""
-            for i2,it in ipairs(entry.items) do
-                itemsStr = itemsStr..(i2>1 and "  ·  " or "").."  "..it.name.." ×"..it.amount
-            end
-            local iLbl = Instance.new("TextLabel",card)
-            iLbl.Size = UDim2.new(1,0,0,16); iLbl.BackgroundTransparency=1
-            iLbl.Text = itemsStr; iLbl.TextColor3 = T.txtSub
-            iLbl.Font = Enum.Font.Gotham; iLbl.TextSize = 11
-            iLbl.TextXAlignment = Enum.TextXAlignment.Left
-            iLbl.TextTruncate = Enum.TextTruncate.AtEnd; iLbl.LayoutOrder=2
+        local card=Instance.new("Frame",outList); card.Size=UDim2.new(1,0,0,0)
+        card.AutomaticSize=Enum.AutomaticSize.Y; card.BackgroundColor3=T.card
+        card.BorderSizePixel=0; card.LayoutOrder=idx
+        Instance.new("UICorner",card).CornerRadius=UDim.new(0,9)
+        local cst=Instance.new("UIStroke",card)
+        cst.Color=entry.success and Color3.fromRGB(38,76,48) or Color3.fromRGB(76,28,28)
+        cst.Thickness=1
+
+        local cL=Instance.new("UIListLayout",card); cL.SortOrder=Enum.SortOrder.LayoutOrder; cL.Padding=UDim.new(0,2)
+        local cP=Instance.new("UIPadding",card)
+        cP.PaddingLeft=UDim.new(0,12); cP.PaddingRight=UDim.new(0,12)
+        cP.PaddingTop=UDim.new(0,8); cP.PaddingBottom=UDim.new(0,8)
+
+        -- header
+        local hdr=Instance.new("Frame",card); hdr.Size=UDim2.new(1,0,0,20)
+        hdr.BackgroundTransparency=1; hdr.LayoutOrder=1
+
+        local sdot=Instance.new("Frame",hdr); sdot.Size=UDim2.new(0,9,0,9)
+        sdot.Position=UDim2.new(0,0,0.5,-4.5); sdot.BackgroundColor3=entry.success and T.green or T.red
+        sdot.BorderSizePixel=0
+        Instance.new("UICorner",sdot).CornerRadius=UDim.new(1,0)
+
+        local toLbl=Instance.new("TextLabel",hdr); toLbl.Size=UDim2.new(1,-76,1,0)
+        toLbl.Position=UDim2.new(0,16,0,0); toLbl.BackgroundTransparency=1
+        toLbl.Text="→ "..entry.to; toLbl.TextColor3=T.txt
+        toLbl.Font=Enum.Font.GothamBold; toLbl.TextSize=13
+        toLbl.TextXAlignment=Enum.TextXAlignment.Left
+
+        local tLbl=Instance.new("TextLabel",hdr); tLbl.Size=UDim2.new(0,68,1,0)
+        tLbl.Position=UDim2.new(1,-68,0,0); tLbl.BackgroundTransparency=1
+        tLbl.Text=entry.time; tLbl.TextColor3=T.txtMute
+        tLbl.Font=Enum.Font.Code; tLbl.TextSize=10
+        tLbl.TextXAlignment=Enum.TextXAlignment.Right
+
+        if #entry.items>0 then
+            local parts={}
+            for _,it in ipairs(entry.items) do table.insert(parts,it.name.." ×"..it.amount) end
+            local iL=Instance.new("TextLabel",card); iL.Size=UDim2.new(1,0,0,15)
+            iL.BackgroundTransparency=1; iL.Text="  "..table.concat(parts,"  ·  ")
+            iL.TextColor3=T.txtSub; iL.Font=Enum.Font.Gotham; iL.TextSize=11
+            iL.TextXAlignment=Enum.TextXAlignment.Left; iL.TextTruncate=Enum.TextTruncate.AtEnd
+            iL.LayoutOrder=2
         end
-        if #entry.skipped > 0 then
-            local skLbl = Instance.new("TextLabel",card)
-            skLbl.Size = UDim2.new(1,0,0,15); skLbl.BackgroundTransparency=1
-            skLbl.Text = "Skipped (not in inv): "..table.concat(entry.skipped,", ")
-            skLbl.TextColor3 = T.orange; skLbl.Font = Enum.Font.Gotham
-            skLbl.TextSize = 10; skLbl.TextXAlignment = Enum.TextXAlignment.Left
-            skLbl.TextTruncate = Enum.TextTruncate.AtEnd; skLbl.LayoutOrder=3
+        if #entry.skipped>0 then
+            local sL=Instance.new("TextLabel",card); sL.Size=UDim2.new(1,0,0,13)
+            sL.BackgroundTransparency=1; sL.Text="  Skipped: "..table.concat(entry.skipped,", ")
+            sL.TextColor3=T.orange; sL.Font=Enum.Font.Gotham; sL.TextSize=10
+            sL.TextXAlignment=Enum.TextXAlignment.Left; sL.TextTruncate=Enum.TextTruncate.AtEnd
+            sL.LayoutOrder=3
         end
-        table.insert(outEntryFrames, card)
+        table.insert(outFrames,card)
     end
 end
-outputUpdateFn = rebuildOutput; rebuildOutput()
-local clearOutBtn = mkBtn("🗑   Clear History", T.redDk, 3, op)
-clearOutBtn.MouseButton1Click:Connect(function() outputLog={}; rebuildOutput() end)
 
--- ═══════════════════════════════════════════════════════════════════════════════
+rebuildOutputFn = rebuildOutput
+rebuildOutput()
+
+local clearBtn=mkBtn("🗑   Clear History",T.redDk,3,op)
+clearBtn.MouseButton1Click:Connect(function() outputLog={} rebuildOutput() end)
+
+-- ═══════════════════════════════════════════════════════════════════════
 -- SETTINGS PAGE
--- ═══════════════════════════════════════════════════════════════════════════════
+-- ═══════════════════════════════════════════════════════════════════════
 local sp = settingTab.page
 
--- ── Window size ───────────────────────────────────────────────────────────────
-secLabel("Window size", 1, sp)
-local sizeCard = Instance.new("Frame")
-sizeCard.Size = UDim2.new(1,0,0,0); sizeCard.AutomaticSize = Enum.AutomaticSize.Y
-sizeCard.BackgroundColor3 = T.card; sizeCard.BorderSizePixel = 0
-sizeCard.LayoutOrder = 2; sizeCard.Parent = sp
-Instance.new("UICorner",sizeCard).CornerRadius = UDim.new(0,9)
-Instance.new("UIStroke",sizeCard).Color = T.border
-local scPad = Instance.new("UIPadding",sizeCard)
-scPad.PaddingLeft=UDim.new(0,12) scPad.PaddingRight=UDim.new(0,12)
-scPad.PaddingTop=UDim.new(0,10) scPad.PaddingBottom=UDim.new(0,10)
-local scLayout = Instance.new("UIListLayout",sizeCard)
-scLayout.SortOrder = Enum.SortOrder.LayoutOrder; scLayout.Padding = UDim.new(0,8)
+-- ── Config Slots ─────────────────────────────────────────────────────
+secLbl("Configs",1,sp)
 
-local function sizeRow(labelTxt, minV, maxV, defaultV, order, onChange)
-    local row = Instance.new("Frame",sizeCard)
-    row.Size = UDim2.new(1,0,0,30); row.BackgroundTransparency=1; row.LayoutOrder=order
-    local lbl = Instance.new("TextLabel",row)
-    lbl.Size = UDim2.new(0.45,0,1,0); lbl.BackgroundTransparency=1; lbl.Text=labelTxt
-    lbl.TextColor3=T.txt; lbl.Font=Enum.Font.Gotham; lbl.TextSize=13
-    lbl.TextXAlignment=Enum.TextXAlignment.Left
-    local box = Instance.new("TextBox",row)
-    box.Size = UDim2.new(0,70,0,28); box.Position = UDim2.new(0.5,0,0.5,-14)
-    box.BackgroundColor3=T.input; box.BorderSizePixel=0; box.Text=tostring(defaultV)
-    box.TextColor3=T.txt; box.Font=Enum.Font.GothamBold; box.TextSize=13
-    box.ClearTextOnFocus=false
-    Instance.new("UICorner",box).CornerRadius=UDim.new(0,6)
-    local bs=Instance.new("UIStroke",box); bs.Color=T.border; bs.Thickness=1
-    Instance.new("UIPadding",box).PaddingLeft=UDim.new(0,8)
-    box.Focused:Connect(function() TweenService:Create(bs,TweenInfo.new(0.15),{Color=T.accent}):Play() end)
-    box.FocusLost:Connect(function()
-        TweenService:Create(bs,TweenInfo.new(0.15),{Color=T.border}):Play()
-        local v=tonumber(box.Text)
-        if v then v=math.clamp(v,minV,maxV); box.Text=tostring(v); onChange(v) end
-    end)
-    return box
+local cfgCard=Instance.new("Frame"); cfgCard.Size=UDim2.new(1,0,0,0)
+cfgCard.AutomaticSize=Enum.AutomaticSize.Y; cfgCard.BackgroundColor3=T.card
+cfgCard.BorderSizePixel=0; cfgCard.LayoutOrder=2; cfgCard.Parent=sp
+Instance.new("UICorner",cfgCard).CornerRadius=UDim.new(0,9)
+Instance.new("UIStroke",cfgCard).Color=T.border
+
+local cfgPad=Instance.new("UIPadding",cfgCard)
+cfgPad.PaddingLeft=UDim.new(0,12); cfgPad.PaddingRight=UDim.new(0,12)
+cfgPad.PaddingTop=UDim.new(0,10); cfgPad.PaddingBottom=UDim.new(0,10)
+
+local cfgL=Instance.new("UIListLayout",cfgCard)
+cfgL.SortOrder=Enum.SortOrder.LayoutOrder; cfgL.Padding=UDim.new(0,8)
+
+-- Config name input
+local cfgNameRow=Instance.new("Frame",cfgCard); cfgNameRow.Size=UDim2.new(1,0,0,34)
+cfgNameRow.BackgroundTransparency=1; cfgNameRow.LayoutOrder=1
+
+local cfgNameLbl=Instance.new("TextLabel",cfgNameRow); cfgNameLbl.Size=UDim2.new(0,90,1,0)
+cfgNameLbl.BackgroundTransparency=1; cfgNameLbl.Text="Config name"
+cfgNameLbl.TextColor3=T.txtSub; cfgNameLbl.Font=Enum.Font.Gotham; cfgNameLbl.TextSize=12
+cfgNameLbl.TextXAlignment=Enum.TextXAlignment.Left
+
+local cfgNameBox=Instance.new("TextBox",cfgNameRow); cfgNameBox.Size=UDim2.new(1,-98,0,30)
+cfgNameBox.Position=UDim2.new(0,96,0.5,-15); cfgNameBox.BackgroundColor3=T.input
+cfgNameBox.BorderSizePixel=0; cfgNameBox.PlaceholderText="e.g.  main"
+cfgNameBox.PlaceholderColor3=T.txtMute; cfgNameBox.Text=""
+cfgNameBox.TextColor3=T.txt; cfgNameBox.Font=Enum.Font.Gotham; cfgNameBox.TextSize=13
+cfgNameBox.ClearTextOnFocus=false
+Instance.new("UICorner",cfgNameBox).CornerRadius=UDim.new(0,7)
+local cnSt=Instance.new("UIStroke",cfgNameBox); cnSt.Color=T.border; cnSt.Thickness=1
+Instance.new("UIPadding",cfgNameBox).PaddingLeft=UDim.new(0,10)
+cfgNameBox.Focused:Connect(function() TweenService:Create(cnSt,TweenInfo.new(0.15),{Color=T.accent}):Play() end)
+cfgNameBox.FocusLost:Connect(function() TweenService:Create(cnSt,TweenInfo.new(0.15),{Color=T.border}):Play() end)
+
+-- Saved configs dropdown list label
+local savedHdr=Instance.new("TextLabel",cfgCard); savedHdr.Size=UDim2.new(1,0,0,14)
+savedHdr.BackgroundTransparency=1; savedHdr.Text="SAVED CONFIGS"
+savedHdr.TextColor3=T.txtMute; savedHdr.Font=Enum.Font.GothamSemibold
+savedHdr.TextSize=9; savedHdr.TextXAlignment=Enum.TextXAlignment.Left; savedHdr.LayoutOrder=2
+
+local savedList=Instance.new("Frame",cfgCard); savedList.Size=UDim2.new(1,0,0,0)
+savedList.AutomaticSize=Enum.AutomaticSize.Y; savedList.BackgroundTransparency=1
+savedList.LayoutOrder=3
+local slL=Instance.new("UIListLayout",savedList); slL.SortOrder=Enum.SortOrder.LayoutOrder; slL.Padding=UDim.new(0,4)
+
+local noSavedLbl=Instance.new("TextLabel",savedList); noSavedLbl.Size=UDim2.new(1,0,0,24)
+noSavedLbl.BackgroundTransparency=1; noSavedLbl.Text="No configs saved yet."
+noSavedLbl.TextColor3=T.txtMute; noSavedLbl.Font=Enum.Font.Gotham; noSavedLbl.TextSize=11
+
+local cfgRowFrames={}
+
+local function rebuildSavedList()
+    for _,f in ipairs(cfgRowFrames) do f:Destroy() end; cfgRowFrames={}
+    local any=false
+    for name,_ in pairs(configs) do
+        any=true
+        local row=Instance.new("Frame",savedList); row.Size=UDim2.new(1,0,0,30)
+        row.BackgroundColor3=T.surface; row.BorderSizePixel=0
+        Instance.new("UICorner",row).CornerRadius=UDim.new(0,6)
+        Instance.new("UIStroke",row).Color=T.border
+
+        local nLbl=Instance.new("TextLabel",row); nLbl.Size=UDim2.new(1,-80,1,0)
+        nLbl.Position=UDim2.new(0,10,0,0); nLbl.BackgroundTransparency=1
+        nLbl.Text=name; nLbl.TextColor3=T.txt; nLbl.Font=Enum.Font.GothamSemibold
+        nLbl.TextSize=12; nLbl.TextXAlignment=Enum.TextXAlignment.Left
+
+        -- Load btn
+        local loadB=Instance.new("TextButton",row); loadB.Size=UDim2.new(0,44,0,22)
+        loadB.Position=UDim2.new(1,-76,0.5,-11); loadB.BackgroundColor3=T.accent
+        loadB.Text="Load"; loadB.TextColor3=Color3.new(1,1,1)
+        loadB.Font=Enum.Font.GothamBold; loadB.TextSize=10; loadB.BorderSizePixel=0
+        Instance.new("UICorner",loadB).CornerRadius=UDim.new(0,5)
+
+        -- Del btn
+        local delB=Instance.new("TextButton",row); delB.Size=UDim2.new(0,24,0,22)
+        delB.Position=UDim2.new(1,-26,0.5,-11); delB.BackgroundColor3=T.redDk
+        delB.Text="✕"; delB.TextColor3=Color3.fromRGB(220,90,90)
+        delB.Font=Enum.Font.GothamBold; delB.TextSize=10; delB.BorderSizePixel=0
+        Instance.new("UICorner",delB).CornerRadius=UDim.new(0,5)
+
+        loadB.MouseButton1Click:Connect(function()
+            local saved=configs[name]
+            if not saved then return end
+            -- clear current items
+            for _,e in ipairs(itemEntries) do e.frame:Destroy() end
+            itemEntries={}
+            syncCfgItems(); refreshEmpty()
+            -- apply
+            if saved.username then usernameBox.Text=saved.username; cfg.username=saved.username end
+            if saved.note     then noteBox.Text=saved.note; cfg.note=saved.note end
+            if saved.interval then intBox.Text=tostring(saved.interval); cfg.interval=saved.interval end
+            if type(saved.items)=="table" then
+                for _,it in ipairs(saved.items) do addItemRow(it.name,it.amount,it.enabled) end
+            end
+            setLog("Loaded config: "..name)
+        end)
+
+        delB.MouseButton1Click:Connect(function()
+            configs[name]=nil; saveAll(); rebuildSavedList()
+        end)
+
+        table.insert(cfgRowFrames,row)
+    end
+    noSavedLbl.Visible=not any
 end
 
-sizeRow("Width", 300, 800, cfg.winW, 1, function(v) cfg.winW=v win.Size=UDim2.new(0,cfg.winW,0,cfg.winH) if cfg.autoSave then saveConfig() end end)
-sizeRow("Height", 300, 700, cfg.winH, 2, function(v) cfg.winH=v win.Size=UDim2.new(0,cfg.winW,0,cfg.winH) if cfg.autoSave then saveConfig() end end)
-
--- ── Item limit ────────────────────────────────────────────────────────────────
-secLabel("Item quantity limit", 3, sp)
-local limitCard = Instance.new("Frame")
-limitCard.Size = UDim2.new(1,0,0,54); limitCard.BackgroundColor3=T.card
-limitCard.BorderSizePixel=0; limitCard.LayoutOrder=4; limitCard.Parent=sp
-Instance.new("UICorner",limitCard).CornerRadius=UDim.new(0,9)
-Instance.new("UIStroke",limitCard).Color=T.border
-local limTitle = Instance.new("TextLabel",limitCard)
-limTitle.Size=UDim2.new(1,-90,0,16); limTitle.Position=UDim2.fromOffset(12,8)
-limTitle.BackgroundTransparency=1; limTitle.Text="Max items per entry"
-limTitle.TextColor3=T.txt; limTitle.Font=Enum.Font.GothamSemibold
-limTitle.TextSize=12; limTitle.TextXAlignment=Enum.TextXAlignment.Left
-local limDesc = Instance.new("TextLabel",limitCard)
-limDesc.Size=UDim2.new(1,-90,0,14); limDesc.Position=UDim2.fromOffset(12,30)
-limDesc.BackgroundTransparency=1; limDesc.Text="Hard cap: 100 (safety limit)"
-limDesc.TextColor3=T.txtMute; limDesc.Font=Enum.Font.Gotham
-limDesc.TextSize=10; limDesc.TextXAlignment=Enum.TextXAlignment.Left
-local limBox = Instance.new("TextBox",limitCard)
-limBox.Size=UDim2.new(0,60,0,28); limBox.Position=UDim2.new(1,-72,0.5,-14)
-limBox.BackgroundColor3=T.input; limBox.BorderSizePixel=0; limBox.Text=tostring(cfg.maxItems)
-limBox.TextColor3=T.txt; limBox.Font=Enum.Font.GothamBold; limBox.TextSize=13
-limBox.ClearTextOnFocus=false
-Instance.new("UICorner",limBox).CornerRadius=UDim.new(0,6)
-local lst=Instance.new("UIStroke",limBox); lst.Color=T.border; lst.Thickness=1
-Instance.new("UIPadding",limBox).PaddingLeft=UDim.new(0,8)
-limBox.Focused:Connect(function() TweenService:Create(lst,TweenInfo.new(0.15),{Color=T.accent}):Play() end)
-limBox.FocusLost:Connect(function()
-    TweenService:Create(lst,TweenInfo.new(0.15),{Color=T.border}):Play()
-    local v=tonumber(limBox.Text)
-    if v then cfg.maxItems=math.clamp(v,1,100) limBox.Text=tostring(cfg.maxItems) end
-    if cfg.autoSave then saveConfig() end
+-- Save / Create button
+local saveCfgBtn=mkBtn("💾   Save Config",T.green,4,cfgCard)
+saveCfgBtn.LayoutOrder=4
+saveCfgBtn.MouseButton1Click:Connect(function()
+    local n=cfgNameBox.Text:match("^%s*(.-)%s*$")
+    if n=="" then setLog("⚠  Enter a config name.",true) return end
+    syncCfgItems()
+    configs[n]={
+        username=usernameBox.Text, note=noteBox.Text,
+        interval=tonumber(intBox.Text) or 10,
+        items=deepCopy(cfg.items),
+    }
+    saveAll(); rebuildSavedList()
+    saveCfgBtn.Text="✓  Saved!"
+    task.delay(1.5,function() if saveCfgBtn and saveCfgBtn.Parent then saveCfgBtn.Text="💾   Save Config" end end)
 end)
 
--- ── Webhook ───────────────────────────────────────────────────────────────────
-secLabel("Discord Webhook (sends log)", 5, sp)
-local webhookBox = mkInput("https://discord.com/api/webhooks/...", 6, sp)
-webhookBox.Text = cfg.webhook
-webhookBox.FocusLost:Connect(function() cfg.webhook=webhookBox.Text if cfg.autoSave then saveConfig() end end)
-local testWebhookBtn = mkBtn("🔔   Test Webhook", Color3.fromRGB(88,101,242), 7, sp)
-testWebhookBtn.MouseButton1Click:Connect(function()
-    if cfg.webhook=="" then return end
+rebuildSavedList()
+
+-- ── Window size ───────────────────────────────────────────────────────
+secLbl("Window size",5,sp)
+
+local szCard=Instance.new("Frame"); szCard.Size=UDim2.new(1,0,0,0)
+szCard.AutomaticSize=Enum.AutomaticSize.Y; szCard.BackgroundColor3=T.card
+szCard.BorderSizePixel=0; szCard.LayoutOrder=6; szCard.Parent=sp
+Instance.new("UICorner",szCard).CornerRadius=UDim.new(0,9)
+Instance.new("UIStroke",szCard).Color=T.border
+
+local szPad=Instance.new("UIPadding",szCard)
+szPad.PaddingLeft=UDim.new(0,12); szPad.PaddingRight=UDim.new(0,12)
+szPad.PaddingTop=UDim.new(0,10); szPad.PaddingBottom=UDim.new(0,10)
+
+local szL=Instance.new("UIListLayout",szCard); szL.SortOrder=Enum.SortOrder.LayoutOrder; szL.Padding=UDim.new(0,8)
+
+local function sizeRow(lbl,minV,maxV,defV,ord,cb)
+    local row=Instance.new("Frame",szCard); row.Size=UDim2.new(1,0,0,28)
+    row.BackgroundTransparency=1; row.LayoutOrder=ord
+
+    local l=Instance.new("TextLabel",row); l.Size=UDim2.new(0.52,0,1,0)
+    l.BackgroundTransparency=1; l.Text=lbl; l.TextColor3=T.txt
+    l.Font=Enum.Font.Gotham; l.TextSize=12; l.TextXAlignment=Enum.TextXAlignment.Left
+
+    local box=Instance.new("TextBox",row); box.Size=UDim2.new(0,68,0,26)
+    box.Position=UDim2.new(0.54,0,0.5,-13); box.BackgroundColor3=T.input
+    box.BorderSizePixel=0; box.Text=tostring(defV); box.TextColor3=T.txt
+    box.Font=Enum.Font.GothamBold; box.TextSize=12; box.ClearTextOnFocus=false
+    Instance.new("UICorner",box).CornerRadius=UDim.new(0,6)
+    local bst=Instance.new("UIStroke",box); bst.Color=T.border; bst.Thickness=1
+    Instance.new("UIPadding",box).PaddingLeft=UDim.new(0,8)
+    box.Focused:Connect(function() TweenService:Create(bst,TweenInfo.new(0.15),{Color=T.accent}):Play() end)
+    box.FocusLost:Connect(function()
+        TweenService:Create(bst,TweenInfo.new(0.15),{Color=T.border}):Play()
+        local v=tonumber(box.Text); if v then cb(math.clamp(v,minV,maxV)) end
+    end)
+
+    local apB=Instance.new("TextButton",row); apB.Size=UDim2.new(0,50,0,26)
+    apB.Position=UDim2.new(1,-50,0.5,-13); apB.BackgroundColor3=T.accent
+    apB.Text="Apply"; apB.TextColor3=Color3.new(1,1,1)
+    apB.Font=Enum.Font.GothamBold; apB.TextSize=10; apB.BorderSizePixel=0
+    Instance.new("UICorner",apB).CornerRadius=UDim.new(0,6)
+    apB.MouseButton1Click:Connect(function()
+        local v=tonumber(box.Text); if v then box.Text=tostring(math.clamp(v,minV,maxV)); cb(tonumber(box.Text)) end
+    end)
+end
+
+sizeRow("Width  (340 – 700)",340,700,cfg.winW,1,function(v) cfg.winW=v; win.Size=UDim2.new(0,cfg.winW,0,cfg.winH) end)
+sizeRow("Height  (380 – 700)",380,700,cfg.winH,2,function(v) cfg.winH=v; win.Size=UDim2.new(0,cfg.winW,0,cfg.winH) end)
+
+-- ── Send limit ────────────────────────────────────────────────────────
+secLbl("Send limit",7,sp)
+
+local limCard=Instance.new("Frame"); limCard.Size=UDim2.new(1,0,0,50)
+limCard.BackgroundColor3=T.card; limCard.BorderSizePixel=0
+limCard.LayoutOrder=8; limCard.Parent=sp
+Instance.new("UICorner",limCard).CornerRadius=UDim.new(0,9)
+Instance.new("UIStroke",limCard).Color=T.border
+
+local llbl=Instance.new("TextLabel",limCard); llbl.Size=UDim2.new(1,-90,0,20)
+llbl.Position=UDim2.new(0,12,0,7); llbl.BackgroundTransparency=1
+llbl.Text="Max qty per item"; llbl.TextColor3=T.txt
+llbl.Font=Enum.Font.GothamSemibold; llbl.TextSize=12; llbl.TextXAlignment=Enum.TextXAlignment.Left
+
+local ldsc=Instance.new("TextLabel",limCard); ldsc.Size=UDim2.new(1,-90,0,14)
+ldsc.Position=UDim2.new(0,12,0,28); ldsc.BackgroundTransparency=1
+ldsc.Text="Hard cap: 100 for safety"; ldsc.TextColor3=T.txtMute
+ldsc.Font=Enum.Font.Gotham; ldsc.TextSize=10; ldsc.TextXAlignment=Enum.TextXAlignment.Left
+
+local limBox=Instance.new("TextBox",limCard); limBox.Size=UDim2.new(0,58,0,28)
+limBox.Position=UDim2.new(1,-70,0.5,-14); limBox.BackgroundColor3=T.input
+limBox.BorderSizePixel=0; limBox.Text=tostring(cfg.maxAmt)
+limBox.TextColor3=T.txt; limBox.Font=Enum.Font.GothamBold; limBox.TextSize=12
+limBox.ClearTextOnFocus=false
+Instance.new("UICorner",limBox).CornerRadius=UDim.new(0,6)
+local lmSt=Instance.new("UIStroke",limBox); lmSt.Color=T.border; lmSt.Thickness=1
+Instance.new("UIPadding",limBox).PaddingLeft=UDim.new(0,8)
+limBox.Focused:Connect(function() TweenService:Create(lmSt,TweenInfo.new(0.15),{Color=T.accent}):Play() end)
+limBox.FocusLost:Connect(function()
+    TweenService:Create(lmSt,TweenInfo.new(0.15),{Color=T.border}):Play()
+    local v=tonumber(limBox.Text)
+    if v then cfg.maxAmt=math.clamp(v,1,100); limBox.Text=tostring(cfg.maxAmt) end
+end)
+
+-- ── Webhook ───────────────────────────────────────────────────────────
+secLbl("Discord Webhook",9,sp)
+local webhookBox=mkIn("https://discord.com/api/webhooks/...",10,sp)
+webhookBox.FocusLost:Connect(function() cfg.webhook=webhookBox.Text end)
+
+local testWH=mkBtn("🔔   Test Webhook",Color3.fromRGB(88,101,242),11,sp)
+testWH.MouseButton1Click:Connect(function()
+    if cfg.webhook=="" then setLog("⚠  No webhook URL.",true) return end
     pcall(function()
-        local embed = {
-            title = "✅ Webhook Test",
-            description = "Auto Send Mailbox webhook is working!",
-            color = 3066993,
-            footer = { text = "Auto Send Mailbox v3.0" },
-        }
-        local body = HttpService:JSONEncode({ embeds = { embed } })
-        local req = (syn and syn.request) or (http and http.request) or request
+        local body=HttpService:JSONEncode({embeds={{
+            title="✅  Webhook Test — Auto Send Mailbox",
+            color=3066993,
+            description="Webhook is connected and working!",
+            footer={text="Auto Send Mailbox v3.0"},
+        }}})
+        local req=(syn and syn.request) or (http and http.request) or request
         if req then req({Url=cfg.webhook,Method="POST",Headers={["Content-Type"]="application/json"},Body=body}) end
     end)
 end)
-local _, getAutoWebhook, setAutoWebhook = mkToggle("Auto Send Webhook", 8, sp)
-setAutoWebhook(cfg.autoSendWebhook)
-task.spawn(function()
-    while gui.Parent do cfg.autoSendWebhook=getAutoWebhook() task.wait(0.5) end
-end)
 
--- ── Config file system ────────────────────────────────────────────────────────
-secLabel("Config Profiles", 9, sp)
+local _,getWHon,setWHon = mkToggle("Send to webhook on each send",12,sp)
+setWHon(cfg.webhookOn)
+task.spawn(function() while gui.Parent do cfg.webhookOn=getWHon(); task.wait(0.5) end end)
 
-local cfgCard = Instance.new("Frame")
-cfgCard.Size = UDim2.new(1,0,0,0); cfgCard.AutomaticSize = Enum.AutomaticSize.Y
-cfgCard.BackgroundColor3 = T.card; cfgCard.BorderSizePixel = 0
-cfgCard.LayoutOrder = 10; cfgCard.Parent = sp
-Instance.new("UICorner",cfgCard).CornerRadius = UDim.new(0,9)
-Instance.new("UIStroke",cfgCard).Color = T.border
-local cfgPad = Instance.new("UIPadding",cfgCard)
-cfgPad.PaddingLeft=UDim.new(0,12) cfgPad.PaddingRight=UDim.new(0,12)
-cfgPad.PaddingTop=UDim.new(0,10) cfgPad.PaddingBottom=UDim.new(0,10)
-local cfgLayout = Instance.new("UIListLayout",cfgCard)
-cfgLayout.SortOrder=Enum.SortOrder.LayoutOrder; cfgLayout.Padding=UDim.new(0,8)
+-- ── About ─────────────────────────────────────────────────────────────
+secLbl("About",13,sp)
+local aCard=Instance.new("Frame"); aCard.Size=UDim2.new(1,0,0,58)
+aCard.BackgroundColor3=T.card; aCard.BorderSizePixel=0
+aCard.LayoutOrder=14; aCard.Parent=sp
+Instance.new("UICorner",aCard).CornerRadius=UDim.new(0,9)
+Instance.new("UIStroke",aCard).Color=T.border
 
--- Config name input
-local cfgNameRow = Instance.new("Frame",cfgCard)
-cfgNameRow.Size=UDim2.new(1,0,0,32); cfgNameRow.BackgroundTransparency=1; cfgNameRow.LayoutOrder=1
-local cfgNameLbl = Instance.new("TextLabel",cfgNameRow)
-cfgNameLbl.Size=UDim2.new(0,90,1,0); cfgNameLbl.BackgroundTransparency=1
-cfgNameLbl.Text="Profile name"; cfgNameLbl.TextColor3=T.txt
-cfgNameLbl.Font=Enum.Font.Gotham; cfgNameLbl.TextSize=12
-cfgNameLbl.TextXAlignment=Enum.TextXAlignment.Left
-local cfgNameBox = Instance.new("TextBox",cfgNameRow)
-cfgNameBox.Size=UDim2.new(1,-100,1,0); cfgNameBox.Position=UDim2.new(0,100,0,0)
-cfgNameBox.BackgroundColor3=T.input; cfgNameBox.BorderSizePixel=0
-cfgNameBox.Text=cfg.configName; cfgNameBox.PlaceholderText="e.g. default, run1, alt"
-cfgNameBox.PlaceholderColor3=T.txtMute; cfgNameBox.TextColor3=T.txt
-cfgNameBox.Font=Enum.Font.Gotham; cfgNameBox.TextSize=12; cfgNameBox.ClearTextOnFocus=false
-Instance.new("UICorner",cfgNameBox).CornerRadius=UDim.new(0,6)
-local cfgNs=Instance.new("UIStroke",cfgNameBox); cfgNs.Color=T.border; cfgNs.Thickness=1
-Instance.new("UIPadding",cfgNameBox).PaddingLeft=UDim.new(0,8)
-cfgNameBox.Focused:Connect(function() TweenService:Create(cfgNs,TweenInfo.new(0.15),{Color=T.accent}):Play() end)
-cfgNameBox.FocusLost:Connect(function()
-    TweenService:Create(cfgNs,TweenInfo.new(0.15),{Color=T.border}):Play()
-    cfg.configName = cfgNameBox.Text~="" and cfgNameBox.Text or "default"
-    cfgNameBox.Text = cfg.configName
-end)
+local aLbl=Instance.new("TextLabel",aCard); aLbl.Size=UDim2.new(1,-20,1,0)
+aLbl.Position=UDim2.new(0,12,0,0); aLbl.BackgroundTransparency=1
+aLbl.Text="Auto Send Mailbox  v3.0\nLoops enabled items in order · skips items not in inventory.\nMax 20 entries per batch · Hard item cap: 100."
+aLbl.TextColor3=T.txtMute; aLbl.Font=Enum.Font.Gotham; aLbl.TextSize=10
+aLbl.TextXAlignment=Enum.TextXAlignment.Left; aLbl.TextYAlignment=Enum.TextYAlignment.Center
 
--- Save / Load buttons row
-local cfgBtnRow = Instance.new("Frame",cfgCard)
-cfgBtnRow.Size=UDim2.new(1,0,0,36); cfgBtnRow.BackgroundTransparency=1; cfgBtnRow.LayoutOrder=2
-
-local saveProfileBtn = Instance.new("TextButton",cfgBtnRow)
-saveProfileBtn.Size=UDim2.new(0.48,0,1,0)
-saveProfileBtn.BackgroundColor3=T.green; saveProfileBtn.BorderSizePixel=0
-saveProfileBtn.Text="💾  Save Profile"; saveProfileBtn.TextColor3=Color3.new(1,1,1)
-saveProfileBtn.Font=Enum.Font.GothamBold; saveProfileBtn.TextSize=12
-Instance.new("UICorner",saveProfileBtn).CornerRadius=UDim.new(0,8)
-saveProfileBtn.MouseButton1Click:Connect(function()
-    rebuildCfg()
-    cfg.username=usernameBox.Text; cfg.note=noteBox.Text
-    saveConfig(cfg.configName)
-    local orig=saveProfileBtn.Text; saveProfileBtn.Text="✓ Saved!"
-    task.delay(1.5, function() if saveProfileBtn and saveProfileBtn.Parent then saveProfileBtn.Text=orig end end)
-    log("Profile '"..cfg.configName.."' saved.")
-end)
-
-local loadProfileBtn = Instance.new("TextButton",cfgBtnRow)
-loadProfileBtn.Size=UDim2.new(0.48,0,1,0); loadProfileBtn.Position=UDim2.new(0.52,0,0,0)
-loadProfileBtn.BackgroundColor3=T.accent; loadProfileBtn.BorderSizePixel=0
-loadProfileBtn.Text="📂  Load Profile"; loadProfileBtn.TextColor3=Color3.new(1,1,1)
-loadProfileBtn.Font=Enum.Font.GothamBold; loadProfileBtn.TextSize=12
-Instance.new("UICorner",loadProfileBtn).CornerRadius=UDim.new(0,8)
-loadProfileBtn.MouseButton1Click:Connect(function()
-    local name = cfgNameBox.Text~="" and cfgNameBox.Text or "default"
-    if loadConfig(name) then
-        -- Clear current items
-        for _,e in ipairs(itemEntries) do if e.frame then e.frame:Destroy() end end
-        itemEntries={}; statusDots={}; refreshEmpty()
-        -- Reload GUI
-        usernameBox.Text=cfg.username; noteBox.Text=cfg.note
-        intBox.Text=tostring(cfg.interval); limBox.Text=tostring(cfg.maxItems)
-        webhookBox.Text=cfg.webhook; setAutoWebhook(cfg.autoSendWebhook)
-        win.Size=UDim2.new(0,cfg.winW,0,cfg.winH)
-        for _,it in ipairs(cfg.items) do addItemEntry(it.name, it.amount) end
-        log("Profile '"..name.."' loaded.")
-    else
-        log("⚠ Profile '"..name.."' not found.", true)
-    end
-end)
-
--- Auto Load toggle
-local _, getAutoLoad, setAutoLoad = mkToggle("Auto Load on Start", 3, cfgCard)
-setAutoLoad(cfg.autoLoad)
-task.spawn(function()
-    while gui.Parent do cfg.autoLoad=getAutoLoad() task.wait(0.5) end
-end)
-
--- ── Auto Save toggle ──────────────────────────────────────────────────────────
-secLabel("Auto Save", 11, sp)
-local _, getAutoSave2, setAutoSave2 = mkToggle("Auto Save (saves on every change)", 12, sp)
-setAutoSave2(cfg.autoSave)
-task.spawn(function()
-    while gui.Parent do cfg.autoSave=getAutoSave2() task.wait(0.5) end
-end)
-
--- ── About ─────────────────────────────────────────────────────────────────────
-secLabel("About", 13, sp)
-local aboutCard = Instance.new("Frame")
-aboutCard.Size=UDim2.new(1,0,0,66); aboutCard.BackgroundColor3=T.card
-aboutCard.BorderSizePixel=0; aboutCard.LayoutOrder=14; aboutCard.Parent=sp
-Instance.new("UICorner",aboutCard).CornerRadius=UDim.new(0,9)
-Instance.new("UIStroke",aboutCard).Color=T.border
-local aboutLbl = Instance.new("TextLabel",aboutCard)
-aboutLbl.Size=UDim2.new(1,-20,1,0); aboutLbl.Position=UDim2.new(0,12,0,0)
-aboutLbl.BackgroundTransparency=1
-aboutLbl.Text="Auto Send Mailbox  v3.0\nConfig profiles · Animated dots · Rich webhook embeds."
-aboutLbl.TextColor3=T.txtMute; aboutLbl.Font=Enum.Font.Gotham
-aboutLbl.TextSize=11; aboutLbl.TextXAlignment=Enum.TextXAlignment.Left
-aboutLbl.TextYAlignment=Enum.TextYAlignment.Center
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- BUTTON LOGIC
--- ═══════════════════════════════════════════════════════════════════════════════
-local autoSendRunning = false
-local autoSendThread  = nil
+-- ═══════════════════════════════════════════════════════════════════════
+-- SEND LOGIC
+-- ═══════════════════════════════════════════════════════════════════════
+local autoRunning   = false
+local autoThread    = nil
+local itemLoopIndex = 1
 
 sendOnceBtn.MouseButton1Click:Connect(function()
-    rebuildCfg(); cfg.username=usernameBox.Text; cfg.note=noteBox.Text
-    log("Sending...")
+    syncCfgItems(); cfg.username=usernameBox.Text; cfg.note=noteBox.Text
+    setLog("Sending all enabled items...")
     task.spawn(function()
-        local ok,err = pcall(function() doSend(log) end)
-        if not ok then log("Error: "..tostring(err),true) end
+        local ok,err=pcall(function() doSendAll(setLog) end)
+        if not ok then setLog("Error: "..tostring(err),true) end
     end)
 end)
 
-local function stopAutoSend()
-    autoSendRunning=false
-    if autoSendThread then task.cancel(autoSendThread) autoSendThread=nil end
-    autoSendBtn.Text="⏵   Start Auto Send"
-    TweenService:Create(autoSendBtn,TweenInfo.new(0.2),{BackgroundColor3=T.green}):Play()
-    log("Auto send stopped.")
+claimBtn.MouseButton1Click:Connect(function()
+    setLog("Claiming mail...")
+    task.spawn(function()
+        local ok=pcall(function() safeNet().Mailbox.ClaimAll:Fire() end)
+        setLog(ok and "✓  Mail claimed." or "✗  Claim failed.", not ok)
+    end)
+end)
+
+local function stopAuto()
+    autoRunning=false
+    if autoThread then task.cancel(autoThread); autoThread=nil end
+    setLog("Auto send stopped.")
 end
 
-local function startAutoSend()
-    autoSendRunning=true
-    autoSendBtn.Text="⏹   Stop Auto Send"
-    TweenService:Create(autoSendBtn,TweenInfo.new(0.2),{BackgroundColor3=T.red}):Play()
-    autoSendThread = task.spawn(function()
-        local itemIndex = 1
-        while autoSendRunning do
-            rebuildCfg(); cfg.username=usernameBox.Text
-            cfg.note=noteBox.Text; cfg.interval=tonumber(intBox.Text) or 10
-            local inv = getInv()
-            if inv then updateItemStatuses(inv) end
-            if #cfg.items==0 then log("⚠  No items in list.", true) task.wait(cfg.interval) continue end
-            if itemIndex>#cfg.items then itemIndex=1 end
-            local singleItem=cfg.items[itemIndex]
-            log("["..itemIndex.."/"..#cfg.items.."] Sending: "..singleItem.name.." ×"..tostring(singleItem.amount).."...")
-            local originalItems=cfg.items; cfg.items={singleItem}
-            pcall(function() doSend(log) end)
-            cfg.items=originalItems
-            itemIndex=itemIndex%#originalItems+1
+local function startAuto()
+    autoRunning    = true
+    itemLoopIndex  = 1
+    autoThread = task.spawn(function()
+        while autoRunning do
+            syncCfgItems(); cfg.username=usernameBox.Text; cfg.note=noteBox.Text
+            cfg.interval = tonumber(intBox.Text) or 10
+
+            -- refresh inventory dots
+            local inv=getInv()
+            if inv then updateDots(inv) end
+
+            -- collect only enabled entries
+            local active={}
+            for _,e in ipairs(cfg.items) do if e.enabled then table.insert(active,e) end end
+
+            if #active==0 then
+                setLog("⚠  No enabled items.",true)
+                task.wait(cfg.interval); continue
+            end
+
+            -- clamp loop index
+            if itemLoopIndex>#active then itemLoopIndex=1 end
+
+            local entry=active[itemLoopIndex]
+            inv = getInv()
+            if inv then
+                local inInv=hasItem(inv,entry.name)
+                if inInv then
+                    setLog("["..itemLoopIndex.."/"..#active.."] Sending: "..entry.name.." ×"..tostring(entry.amount).."...")
+                    local worked,wasSkip=doSendEntry(entry,setLog)
+                    if worked then
+                        pushLog(cfg.username,{entry},{},true)
+                        sendWebhook(cfg.username,{entry},{},true)
+                    elseif wasSkip then
+                        -- item disappeared mid-loop, just move on
+                    else
+                        pushLog(cfg.username,{},{entry.name},false)
+                    end
+                else
+                    setLog("⏭  "..entry.name.." not in inv, skipping...",true)
+                    -- still advance so we try next item
+                end
+            end
+
+            itemLoopIndex = itemLoopIndex%#active + 1
             task.wait(cfg.interval)
         end
     end)
 end
 
-autoSendBtn.MouseButton1Click:Connect(function()
-    if autoSendRunning then stopAutoSend() setAutoSend(false)
-    else startAutoSend() setAutoSend(true) end
-end)
-
+-- Sync toggle
 task.spawn(function()
     while gui.Parent do
-        if getAutoSend() and not autoSendRunning then startAutoSend()
-        elseif not getAutoSend() and autoSendRunning then stopAutoSend() end
+        if getAutoSend() and not autoRunning then startAuto()
+        elseif not getAutoSend() and autoRunning then stopAuto() end
         task.wait(0.5)
     end
 end)
 
--- ─── Continuous dot loop (pulses missing items orange every 3s) ───────────────
+-- Periodic dot refresh
 task.spawn(function()
     while gui.Parent do
-        task.wait(3)
-        local ok,inv = pcall(getInv)
-        if ok and inv then
-            for _,sd in ipairs(statusDots) do
-                if sd.dot and sd.dot.Parent then
-                    local has = hasItemInInv(inv, sd.name)
-                    sd.dot.BackgroundColor3 = has and T.green or T.red
-                    if not has then
-                        -- pulse missing items to draw attention
-                        task.spawn(function()
-                            for _ = 1, 3 do
-                                if not sd.dot or not sd.dot.Parent then return end
-                                TweenService:Create(sd.dot,TweenInfo.new(0.25),{BackgroundColor3=T.orange}):Play()
-                                task.wait(0.3)
-                                if not sd.dot or not sd.dot.Parent then return end
-                                TweenService:Create(sd.dot,TweenInfo.new(0.25),{BackgroundColor3=T.red}):Play()
-                                task.wait(0.3)
-                            end
-                        end)
-                    end
-                end
-            end
-        end
+        task.wait(6)
+        local ok,inv=pcall(getInv)
+        if ok and inv then updateDots(inv) end
     end
 end)
 
--- ─── Load saved config on start ───────────────────────────────────────────────
-local loaded = false
--- Try auto-load if enabled in genv
-local prevData = getgenv()["ASM_Config_" .. (getgenv()["ASM_LastProfile"] or "default")]
-if type(prevData)=="table" and prevData.autoLoad then
-    cfg.configName = prevData.configName or "default"
-    loaded = loadConfig(cfg.configName)
-end
-
-if loaded then
-    usernameBox.Text=cfg.username; noteBox.Text=cfg.note
-    intBox.Text=tostring(cfg.interval); limBox.Text=tostring(cfg.maxItems)
-    webhookBox.Text=cfg.webhook; setAutoWebhook(cfg.autoSendWebhook)
-    setAutoLoad(cfg.autoLoad); setAutoSave2(cfg.autoSave)
-    cfgNameBox.Text=cfg.configName
-    win.Size=UDim2.new(0,cfg.winW,0,cfg.winH)
-    win.Position=UDim2.new(0.5,-cfg.winW/2,0.5,-cfg.winH/2)
-    for _,it in ipairs(cfg.items) do addItemEntry(it.name, it.amount) end
-    log("Profile '"..cfg.configName.."' auto-loaded.")
+-- ═══════════════════════════════════════════════════════════════════════
+-- LOAD ON START
+-- ═══════════════════════════════════════════════════════════════════════
+if loadAll() then
+    usernameBox.Text = cfg.username
+    noteBox.Text     = cfg.note
+    intBox.Text      = tostring(cfg.interval)
+    limBox.Text      = tostring(cfg.maxAmt)
+    if cfg.webhook~="" then webhookBox.Text=cfg.webhook end
+    setWHon(cfg.webhookOn)
+    win.Size     = UDim2.new(0,cfg.winW,0,cfg.winH)
+    win.Position = UDim2.new(0.5,-cfg.winW/2,0.5,-cfg.winH/2)
+    for _,it in ipairs(cfg.items) do
+        addItemRow(it.name,it.amount,it.enabled~=false)
+    end
+    rebuildSavedList()
+    setLog("Config loaded from last session.")
 else
-    log("Ready — fill in details and send.")
+    setLog("Ready — add items and send.")
 end
-
--- Save last used profile name for next auto-load
-getgenv()["ASM_LastProfile"] = cfg.configName

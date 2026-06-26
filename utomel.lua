@@ -1,4 +1,4 @@
--- Auto Send Mailbox GUI v6.1 (Fixed)
+-- Auto Send Mailbox GUI v7.0 (Fixed)
 -- loadstring(game:HttpGet("URL_HERE",true))()
 
 local RS           = game:GetService("ReplicatedStorage")
@@ -25,7 +25,7 @@ local DEFAULT_ITEMS = {
 -- ═══════════════════════════════════════════════════════════════════════
 -- SAVE / LOAD
 -- ═══════════════════════════════════════════════════════════════════════
-local SAVE_KEY = "ASM_v61"
+local SAVE_KEY = "ASM_v7"
 
 local cfg = {
     username    = "",
@@ -161,7 +161,7 @@ local function sendWebhook(to, sentItems, skippedNames, success, mode)
                 inline = true,
             },
         },
-        footer    = { text = "Auto Send Mailbox  v6.1  •  "..now },
+        footer    = { text = "Auto Send Mailbox  v7.0  •  "..now },
         thumbnail = {
             url = "https://www.roblox.com/headshot-thumbnail/image?userId="
                   ..tostring(LocalPlayer.UserId).."&width=48&height=48&format=png"
@@ -398,6 +398,14 @@ sidebar.Position         = UDim2.new(0, 0, 0, TH+3)
 sidebar.BackgroundColor3 = T.sidebar; sidebar.BorderSizePixel = 0; sidebar.ZIndex = 2
 Instance.new("UIStroke", sidebar).Color = T.border
 
+-- Subtle gradient overlay on sidebar
+local sideGrad = Instance.new("UIGradient", sidebar)
+sideGrad.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(22,22,38)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(14,14,22)),
+}
+sideGrad.Rotation = 90
+
 local sideL = Instance.new("UIListLayout", sidebar)
 sideL.SortOrder = Enum.SortOrder.LayoutOrder; sideL.Padding = UDim.new(0,3)
 local sideP = Instance.new("UIPadding", sidebar)
@@ -411,7 +419,7 @@ menuHdr.TextXAlignment = Enum.TextXAlignment.Left; menuHdr.LayoutOrder = 0
 
 local verLbl = Instance.new("TextLabel", sidebar)
 verLbl.Size = UDim2.new(1,0,0,12); verLbl.AnchorPoint = Vector2.new(0,1); verLbl.Position = UDim2.new(0,0,1,-4)
-verLbl.BackgroundTransparency = 1; verLbl.Text = "v6.1"; verLbl.TextColor3 = T.txtMute
+verLbl.BackgroundTransparency = 1; verLbl.Text = "v7.0"; verLbl.TextColor3 = T.txtMute
 verLbl.Font = Enum.Font.Gotham; verLbl.TextSize = 9; verLbl.TextXAlignment = Enum.TextXAlignment.Center; verLbl.ZIndex = 3
 
 -- ── Content area ─────────────────────────────────────────────────────
@@ -541,8 +549,45 @@ end
 local mp = mailTab.page
 
 secLbl("Recipient", 1, mp)
-local usernameBox = mkIn("Roblox username", 2, mp)
-usernameBox.FocusLost:Connect(function() cfg.username = usernameBox.Text end)
+
+-- Recipient row: input + clear 🗑 button
+local recipRow = Instance.new("Frame")
+recipRow.Size = UDim2.new(1,0,0,36); recipRow.BackgroundTransparency = 1
+recipRow.LayoutOrder = 2; recipRow.Parent = mp
+
+local usernameBox = Instance.new("TextBox", recipRow)
+usernameBox.Size = UDim2.new(1,-42,1,0)
+usernameBox.BackgroundColor3 = T.input; usernameBox.BorderSizePixel = 0
+usernameBox.Text = ""; usernameBox.PlaceholderText = "Roblox username"
+usernameBox.PlaceholderColor3 = T.txtMute; usernameBox.TextColor3 = T.txt
+usernameBox.Font = Enum.Font.Gotham; usernameBox.TextSize = 13; usernameBox.ClearTextOnFocus = false
+Instance.new("UICorner", usernameBox).CornerRadius = UDim.new(0, 8)
+local uSt = Instance.new("UIStroke", usernameBox); uSt.Color = T.border; uSt.Thickness = 1
+Instance.new("UIPadding", usernameBox).PaddingLeft = UDim.new(0, 12)
+usernameBox.Focused:Connect(function()  TweenService:Create(uSt,TweenInfo.new(0.15),{Color=T.accent}):Play() end)
+usernameBox.FocusLost:Connect(function()
+    TweenService:Create(uSt,TweenInfo.new(0.15),{Color=T.border}):Play()
+    cfg.username = usernameBox.Text
+end)
+
+local clearRecipBtn = Instance.new("TextButton", recipRow)
+clearRecipBtn.Size = UDim2.new(0,36,0,36); clearRecipBtn.Position = UDim2.new(1,-36,0,0)
+clearRecipBtn.BackgroundColor3 = T.redDk; clearRecipBtn.BorderSizePixel = 0
+clearRecipBtn.Text = "🗑"; clearRecipBtn.TextSize = 16; clearRecipBtn.Font = Enum.Font.GothamBold
+Instance.new("UICorner", clearRecipBtn).CornerRadius = UDim.new(0, 8)
+local crStk = Instance.new("UIStroke", clearRecipBtn); crStk.Color = T.red; crStk.Thickness = 1
+clearRecipBtn.MouseEnter:Connect(function()
+    TweenService:Create(clearRecipBtn,TweenInfo.new(0.12),{BackgroundColor3=T.red}):Play()
+end)
+clearRecipBtn.MouseLeave:Connect(function()
+    TweenService:Create(clearRecipBtn,TweenInfo.new(0.12),{BackgroundColor3=T.redDk}):Play()
+end)
+clearRecipBtn.MouseButton1Click:Connect(function()
+    usernameBox.Text = ""; cfg.username = ""
+    TweenService:Create(clearRecipBtn,TweenInfo.new(0.07),{BackgroundColor3=Color3.fromRGB(255,80,80)}):Play()
+    task.delay(0.2, function() if clearRecipBtn and clearRecipBtn.Parent then TweenService:Create(clearRecipBtn,TweenInfo.new(0.15),{BackgroundColor3=T.redDk}):Play() end end)
+    setLog("Recipient cleared.")
+end)
 
 -- ── Items card ───────────────────────────────────────────────────────
 secLbl("Items to send", 3, mp)
@@ -687,7 +732,7 @@ local function addItemRow(name, amount, autoSend)
     qtyBox.FocusLost:Connect(function()
         TweenService:Create(qSt,TweenInfo.new(0.15),{Color=T.border}):Play()
         local v = tonumber(qtyBox.Text)
-        if v then v = math.clamp(math.floor(v),1,cfg.maxAmt); qtyBox.Text = tostring(v) end
+        if v then v = math.clamp(math.floor(v),1,100); qtyBox.Text = tostring(v) end  -- hard cap 100
         for _, e in ipairs(itemEntries) do if e.qtyBox == qtyBox then e.cfgEntry.amount = tonumber(qtyBox.Text) or 1; break end end
         syncCfgItems(); saveAll()
     end)
@@ -717,10 +762,13 @@ local function addItemRow(name, amount, autoSend)
     onceBtn.MouseEnter:Connect(function() TweenService:Create(onceBtn,TweenInfo.new(0.1),{BackgroundColor3=Color3.fromRGB(50,90,190)}):Play() end)
     onceBtn.MouseLeave:Connect(function() TweenService:Create(onceBtn,TweenInfo.new(0.1),{BackgroundColor3=Color3.fromRGB(28,50,110)}):Play() end)
 
-    local remBtn = Instance.new("TextButton", row); remBtn.Size = UDim2.new(0,24,0,24); remBtn.Position = UDim2.new(1,-26,0.5,-12)
-    remBtn.BackgroundColor3 = Color3.fromRGB(62,20,20); remBtn.Text = "✕"; remBtn.TextColor3 = Color3.fromRGB(210,80,80)
-    remBtn.Font = Enum.Font.GothamBold; remBtn.TextSize = 10; remBtn.BorderSizePixel = 0
-    Instance.new("UICorner", remBtn).CornerRadius = UDim.new(0, 5)
+    local remBtn = Instance.new("TextButton", row); remBtn.Size = UDim2.new(0,26,0,26); remBtn.Position = UDim2.new(1,-28,0.5,-13)
+    remBtn.BackgroundColor3 = Color3.fromRGB(70,20,20); remBtn.Text = "🗑"; remBtn.TextSize = 13
+    remBtn.Font = Enum.Font.GothamBold; remBtn.BorderSizePixel = 0
+    Instance.new("UICorner", remBtn).CornerRadius = UDim.new(0, 7)
+    local remStk = Instance.new("UIStroke", remBtn); remStk.Color = Color3.fromRGB(180,40,40); remStk.Thickness = 1
+    remBtn.MouseEnter:Connect(function() TweenService:Create(remBtn,TweenInfo.new(0.1),{BackgroundColor3=Color3.fromRGB(180,40,40)}):Play() end)
+    remBtn.MouseLeave:Connect(function() TweenService:Create(remBtn,TweenInfo.new(0.1),{BackgroundColor3=Color3.fromRGB(70,20,20)}):Play() end)
 
     local cfgEntry = { name=name, amount=amount, autoSend=autoSend }
     local entryData = { frame=row, dot=dot, qtyBox=qtyBox, autoBtn=autoBtn, onceBtn=onceBtn, numLbl=numL, cfgEntry=cfgEntry }
@@ -755,8 +803,10 @@ local function tryAdd()
     if n == "" then showErr("⚠  Enter an item name."); return end
     local numA = tonumber(a)
     if not numA or a == "" then showErr("⚠  Enter a valid quantity."); return end
-    if numA > 100 then showErr("⚠  Max quantity is 100."); return end
-    addItemRow(n, a, true); nameIn.Text = ""; amtIn.Text = ""; saveAll()
+    numA = math.clamp(math.floor(numA), 1, 100)   -- hard cap 100
+    if tonumber(a) > 100 then showErr("⚠  Qty capped to 100.") end
+    amtIn.Text = tostring(numA)
+    addItemRow(n, tostring(numA), true); nameIn.Text = ""; amtIn.Text = ""; saveAll()
 end
 addBtn.MouseButton1Click:Connect(tryAdd)
 nameIn.FocusLost:Connect(function(enter) if enter then tryAdd() end end)
@@ -787,6 +837,8 @@ local _, getAutoSend, setAutoSend = mkToggle("Auto Send", 10, mp)
 -- ── Log bar ──────────────────────────────────────────────────────────
 local logBar = Instance.new("Frame"); logBar.Size = UDim2.new(1,0,0,34); logBar.BackgroundColor3 = T.card; logBar.BorderSizePixel = 0; logBar.LayoutOrder = 11; logBar.Parent = mp
 Instance.new("UICorner", logBar).CornerRadius = UDim.new(0, 8); Instance.new("UIStroke", logBar).Color = T.border
+-- accent left nub
+local logNub = Instance.new("Frame", logBar); logNub.Size = UDim2.new(0,3,0,20); logNub.Position = UDim2.new(0,0,0.5,-10); logNub.BackgroundColor3 = T.accent; logNub.BorderSizePixel = 0; Instance.new("UICorner", logNub).CornerRadius = UDim.new(0,2)
 local logDot = Instance.new("Frame", logBar); logDot.Size = UDim2.new(0,8,0,8); logDot.Position = UDim2.new(0,12,0.5,-4)
 logDot.BackgroundColor3 = T.green; logDot.BorderSizePixel = 0; Instance.new("UICorner", logDot).CornerRadius = UDim.new(1, 0)
 local logLbl = Instance.new("TextLabel", logBar); logLbl.Size = UDim2.new(1,-30,1,0); logLbl.Position = UDim2.new(0,28,0,0)
@@ -1013,7 +1065,7 @@ local testWH = mkBtn("🔔   Test Webhook", Color3.fromRGB(88,101,242), 12, sp)
 testWH.MouseButton1Click:Connect(function()
     if cfg.webhook == "" then setLog("⚠  No webhook URL.", true); return end
     pcall(function()
-        local body = HttpService:JSONEncode({embeds={{title="✅  Webhook Test — Auto Send Mailbox",color=3066993,description="Webhook is working!",footer={text="v6.1"}}}})
+        local body = HttpService:JSONEncode({embeds={{title="✅  Webhook Test — Auto Send Mailbox",color=3066993,description="Webhook is working!",footer={text="v7.0"}}}})
         local req = (syn and syn.request) or (http and http.request) or request
         if req then req({Url=cfg.webhook,Method="POST",Headers={["Content-Type"]="application/json"},Body=body}) end
     end)
@@ -1023,11 +1075,102 @@ setWHon(cfg.webhookOn)
 task.spawn(function() while gui.Parent do local v=getWHon(); if v~=cfg.webhookOn then cfg.webhookOn=v; saveAll() end; task.wait(0.5) end end)
 
 -- ── About ─────────────────────────────────────────────────────────────
+-- ── UI Color Theme ───────────────────────────────────────────────────
+secLbl("UI Color Theme", 16, sp)
+
+local themeCard = Instance.new("Frame"); themeCard.Size = UDim2.new(1,0,0,0); themeCard.AutomaticSize = Enum.AutomaticSize.Y
+themeCard.BackgroundColor3 = T.card; themeCard.BorderSizePixel = 0; themeCard.LayoutOrder = 17; themeCard.Parent = sp
+Instance.new("UICorner", themeCard).CornerRadius = UDim.new(0, 9); Instance.new("UIStroke", themeCard).Color = T.border
+local thPad = Instance.new("UIPadding", themeCard); thPad.PaddingLeft = UDim.new(0,12); thPad.PaddingRight = UDim.new(0,12); thPad.PaddingTop = UDim.new(0,10); thPad.PaddingBottom = UDim.new(0,10)
+local thLL = Instance.new("UIListLayout", themeCard); thLL.SortOrder = Enum.SortOrder.LayoutOrder; thLL.Padding = UDim.new(0,8)
+
+local thDesc = Instance.new("TextLabel", themeCard); thDesc.Size = UDim2.new(1,0,0,14); thDesc.BackgroundTransparency = 1
+thDesc.Text = "Pick an accent color — affects buttons, toggles, borders and glow."
+thDesc.TextColor3 = T.txtMute; thDesc.Font = Enum.Font.Gotham; thDesc.TextSize = 10
+thDesc.TextXAlignment = Enum.TextXAlignment.Left; thDesc.LayoutOrder = 0
+
+-- Color presets: { label, accent(r,g,b), purple(r,g,b) }
+local PRESETS = {
+    { label="💜 Default",   accent={100,140,255}, purple={150,80,235}  },
+    { label="💚 Mint",      accent={50,205,100},  purple={30,160,80}   },
+    { label="🔴 Red",       accent={220,60,60},   purple={180,40,40}   },
+    { label="🟠 Orange",    accent={230,140,40},  purple={200,100,20}  },
+    { label="🩵 Cyan",      accent={45,200,220},  purple={30,150,180}  },
+    { label="🩷 Pink",      accent={230,80,180},  purple={180,50,140}  },
+    { label="🤍 White",     accent={200,200,220}, purple={160,160,190} },
+    { label="🟡 Gold",      accent={215,175,50},  purple={180,140,30}  },
+}
+
+local presetGrid = Instance.new("Frame", themeCard); presetGrid.Size = UDim2.new(1,0,0,0)
+presetGrid.AutomaticSize = Enum.AutomaticSize.Y; presetGrid.BackgroundTransparency = 1; presetGrid.LayoutOrder = 1
+
+local pgGrid = Instance.new("UIGridLayout", presetGrid)
+pgGrid.CellSize = UDim2.new(0.5,-4,0,30); pgGrid.CellPadding = UDim2.new(0,4,0,4)
+pgGrid.SortOrder = Enum.SortOrder.LayoutOrder
+
+local function applyAccent(acR,acG,acB, prR,prG,prB)
+    local newAcc  = Color3.fromRGB(acR,acG,acB)
+    local newAccL = Color3.fromRGB(
+        math.clamp(acR+40,0,255), math.clamp(acG+35,0,255), math.clamp(acB+0,0,255))
+    local newPur  = Color3.fromRGB(prR,prG,prB)
+    T.accent  = newAcc
+    T.accentL = newAccL
+    T.purple  = newPur
+    -- Update pill gradient
+    if pill and pill.Parent then
+        local pg = pill:FindFirstChildOfClass("UIGradient")
+        if pg then pg.Color = ColorSequence.new{ColorSequenceKeypoint.new(0,newAcc), ColorSequenceKeypoint.new(1,newPur)} end
+    end
+    -- Update window stroke
+    if winStk and winStk.Parent then winStk.Color = Color3.fromRGB(math.clamp(acR-10,0,255),math.clamp(acG-10,0,255),math.clamp(acB-10,0,255)) end
+    -- Update top bar gradient
+    if topG and topG.Parent then
+        topG.Color = ColorSequence.new{
+            ColorSequenceKeypoint.new(0, newAcc),
+            ColorSequenceKeypoint.new(0.5, newPur),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(52,195,105)),
+        }
+    end
+    -- Update mini button
+    if miniBtn and miniBtn.Parent then
+        miniBtn.BackgroundColor3 = newAcc
+        local mst = miniBtn:FindFirstChildOfClass("UIStroke")
+        if mst then mst.Color = newAccL end
+    end
+    -- Update sidebar tab bars
+    for _, td in ipairs(allTabs) do
+        if td.bar then td.bar.BackgroundColor3 = newAcc end
+    end
+    saveAll()
+end
+
+for i, preset in ipairs(PRESETS) do
+    local pbtn = Instance.new("TextButton", presetGrid)
+    pbtn.Size = UDim2.new(0,1,0,1)  -- overridden by UIGridLayout
+    pbtn.BackgroundColor3 = Color3.fromRGB(preset.accent[1], preset.accent[2], preset.accent[3])
+    pbtn.BorderSizePixel = 0; pbtn.Font = Enum.Font.GothamBold
+    pbtn.Text = preset.label; pbtn.TextColor3 = Color3.new(1,1,1); pbtn.TextSize = 10
+    pbtn.LayoutOrder = i
+    Instance.new("UICorner", pbtn).CornerRadius = UDim.new(0, 7)
+    pbtn.MouseEnter:Connect(function()
+        TweenService:Create(pbtn,TweenInfo.new(0.12),{BackgroundColor3=Color3.fromRGB(preset.accent[1],preset.accent[2],preset.accent[3]):Lerp(Color3.new(1,1,1),0.18)}):Play()
+    end)
+    pbtn.MouseLeave:Connect(function()
+        TweenService:Create(pbtn,TweenInfo.new(0.12),{BackgroundColor3=Color3.fromRGB(preset.accent[1],preset.accent[2],preset.accent[3])}):Play()
+    end)
+    pbtn.MouseButton1Click:Connect(function()
+        applyAccent(preset.accent[1],preset.accent[2],preset.accent[3],preset.purple[1],preset.purple[2],preset.purple[3])
+        -- show applied flash
+        local orig = pbtn.Text; pbtn.Text = "✓ Applied"
+        task.delay(1.0, function() if pbtn and pbtn.Parent then pbtn.Text = orig end end)
+    end)
+end
+
 secLbl("About", 14, sp)
 local aCard=Instance.new("Frame"); aCard.Size=UDim2.new(1,0,0,50); aCard.BackgroundColor3=T.card; aCard.BorderSizePixel=0; aCard.LayoutOrder=15; aCard.Parent=sp
 Instance.new("UICorner",aCard).CornerRadius=UDim.new(0,9); Instance.new("UIStroke",aCard).Color=T.border
 local aLbl=Instance.new("TextLabel",aCard); aLbl.Size=UDim2.new(1,-20,1,0); aLbl.Position=UDim2.new(0,12,0,0); aLbl.BackgroundTransparency=1
-aLbl.Text="Auto Send Mailbox  v6.1\nPer-item Auto Send loop + instant Send Once · hard cap 100."; aLbl.TextColor3=T.txtMute; aLbl.Font=Enum.Font.Gotham; aLbl.TextSize=10; aLbl.TextXAlignment=Enum.TextXAlignment.Left; aLbl.TextYAlignment=Enum.TextYAlignment.Center
+aLbl.Text="Auto Send Mailbox  v7.0\nPer-item Auto Send loop + instant Send Once · hard cap 100."; aLbl.TextColor3=T.txtMute; aLbl.Font=Enum.Font.Gotham; aLbl.TextSize=10; aLbl.TextXAlignment=Enum.TextXAlignment.Left; aLbl.TextYAlignment=Enum.TextYAlignment.Center
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- AUTO-SEND LOOP

@@ -35,12 +35,9 @@ local cfg = {
     maxAmt      = 100,
     webhook     = "",
     webhookOn   = false,
-    autoLoad    = false,
-    selectedCfg = "",
     winW        = 560,
     winH        = 500,
 }
-local configs = {}
 
 local function deepCopy(t)
     if type(t) ~= "table" then return t end
@@ -48,14 +45,13 @@ local function deepCopy(t)
 end
 
 local function saveAll()
-    getgenv()[SAVE_KEY] = { cfg = deepCopy(cfg), configs = deepCopy(configs) }
+    getgenv()[SAVE_KEY] = { cfg = deepCopy(cfg) }
 end
 
 local function loadAll()
     local d = getgenv()[SAVE_KEY]
     if type(d) ~= "table" then return false end
-    if type(d.cfg)     == "table" then for k,v in pairs(d.cfg)     do cfg[k]     = v end end
-    if type(d.configs) == "table" then configs = deepCopy(d.configs) end
+    if type(d.cfg) == "table" then for k,v in pairs(d.cfg) do cfg[k] = v end end
     return true
 end
 
@@ -732,7 +728,7 @@ local function addItemRow(name, amount, autoSend)
     qtyBox.FocusLost:Connect(function()
         TweenService:Create(qSt,TweenInfo.new(0.15),{Color=T.border}):Play()
         local v = tonumber(qtyBox.Text)
-        if v then v = math.clamp(math.floor(v),1,100); qtyBox.Text = tostring(v) end  -- hard cap 100
+        if v then v = math.clamp(math.floor(v),1,cfg.maxAmt); qtyBox.Text = tostring(v) end
         for _, e in ipairs(itemEntries) do if e.qtyBox == qtyBox then e.cfgEntry.amount = tonumber(qtyBox.Text) or 1; break end end
         syncCfgItems(); saveAll()
     end)
@@ -803,8 +799,8 @@ local function tryAdd()
     if n == "" then showErr("⚠  Enter an item name."); return end
     local numA = tonumber(a)
     if not numA or a == "" then showErr("⚠  Enter a valid quantity."); return end
-    numA = math.clamp(math.floor(numA), 1, 100)   -- hard cap 100
-    if tonumber(a) > 100 then showErr("⚠  Qty capped to 100.") end
+    numA = math.clamp(math.floor(numA), 1, cfg.maxAmt)
+    if tonumber(a) > cfg.maxAmt then showErr("⚠  Qty capped to "..tostring(cfg.maxAmt)..".") end
     amtIn.Text = tostring(numA)
     addItemRow(n, tostring(numA), true); nameIn.Text = ""; amtIn.Text = ""; saveAll()
 end
@@ -925,106 +921,6 @@ clearBtn.MouseButton1Click:Connect(function() outputLog = {}; rebuildOutput() en
 -- ═══════════════════════════════════════════════════════════════════════
 local sp = settingTab.page
 
-secLbl("Configs", 1, sp)
-
-local cfgOuter = Instance.new("Frame"); cfgOuter.Size = UDim2.new(1,0,0,0); cfgOuter.AutomaticSize = Enum.AutomaticSize.Y
-cfgOuter.BackgroundColor3 = T.card; cfgOuter.BorderSizePixel = 0; cfgOuter.LayoutOrder = 2; cfgOuter.Parent = sp
-Instance.new("UICorner", cfgOuter).CornerRadius = UDim.new(0, 9); Instance.new("UIStroke", cfgOuter).Color = T.border
-local cfgPad = Instance.new("UIPadding", cfgOuter); cfgPad.PaddingLeft = UDim.new(0,12); cfgPad.PaddingRight = UDim.new(0,12); cfgPad.PaddingTop = UDim.new(0,10); cfgPad.PaddingBottom = UDim.new(0,10)
-local cfgLL = Instance.new("UIListLayout", cfgOuter); cfgLL.SortOrder = Enum.SortOrder.LayoutOrder; cfgLL.Padding = UDim.new(0, 8)
-
-local cfgNRow = Instance.new("Frame", cfgOuter); cfgNRow.Size = UDim2.new(1,0,0,30); cfgNRow.BackgroundTransparency = 1; cfgNRow.LayoutOrder = 1
-local cfgNLbl = Instance.new("TextLabel", cfgNRow); cfgNLbl.Size = UDim2.new(0,84,1,0); cfgNLbl.BackgroundTransparency = 1; cfgNLbl.Text = "Config name"; cfgNLbl.TextColor3 = T.txtSub; cfgNLbl.Font = Enum.Font.Gotham; cfgNLbl.TextSize = 12; cfgNLbl.TextXAlignment = Enum.TextXAlignment.Left
-local cfgNameBox = Instance.new("TextBox", cfgNRow); cfgNameBox.Size = UDim2.new(1,-90,0,28); cfgNameBox.Position = UDim2.new(0,90,0.5,-14); cfgNameBox.BackgroundColor3 = T.input; cfgNameBox.BorderSizePixel = 0; cfgNameBox.PlaceholderText = "e.g. main"; cfgNameBox.PlaceholderColor3 = T.txtMute; cfgNameBox.Text = ""; cfgNameBox.TextColor3 = T.txt; cfgNameBox.Font = Enum.Font.Gotham; cfgNameBox.TextSize = 13; cfgNameBox.ClearTextOnFocus = false
-Instance.new("UICorner", cfgNameBox).CornerRadius = UDim.new(0, 6)
-local cnSt = Instance.new("UIStroke", cfgNameBox); cnSt.Color = T.border; cnSt.Thickness = 1; Instance.new("UIPadding", cfgNameBox).PaddingLeft = UDim.new(0, 10)
-cfgNameBox.Focused:Connect(function()  TweenService:Create(cnSt,TweenInfo.new(0.15),{Color=T.accent}):Play() end)
-cfgNameBox.FocusLost:Connect(function() TweenService:Create(cnSt,TweenInfo.new(0.15),{Color=T.border}):Play() end)
-
-local createCfgBtn = Instance.new("TextButton", cfgOuter); createCfgBtn.Size = UDim2.new(1,0,0,30); createCfgBtn.LayoutOrder = 2
-createCfgBtn.BackgroundColor3 = T.accent; createCfgBtn.BorderSizePixel = 0; createCfgBtn.Text = "＋  Create Config"; createCfgBtn.TextColor3 = Color3.new(1,1,1); createCfgBtn.Font = Enum.Font.GothamBold; createCfgBtn.TextSize = 12
-Instance.new("UICorner", createCfgBtn).CornerRadius = UDim.new(0, 7)
-createCfgBtn.MouseEnter:Connect(function() TweenService:Create(createCfgBtn,TweenInfo.new(0.13),{BackgroundColor3=T.accent:Lerp(Color3.new(1,1,1),0.12)}):Play() end)
-createCfgBtn.MouseLeave:Connect(function() TweenService:Create(createCfgBtn,TweenInfo.new(0.13),{BackgroundColor3=T.accent}):Play() end)
-
-local savedHdr = Instance.new("TextLabel", cfgOuter); savedHdr.Size = UDim2.new(1,0,0,12); savedHdr.BackgroundTransparency = 1; savedHdr.Text = "SAVED CONFIGS"; savedHdr.TextColor3 = T.txtMute; savedHdr.Font = Enum.Font.GothamSemibold; savedHdr.TextSize = 9; savedHdr.TextXAlignment = Enum.TextXAlignment.Left; savedHdr.LayoutOrder = 3
-
-local savedList = Instance.new("Frame", cfgOuter); savedList.Size = UDim2.new(1,0,0,0); savedList.AutomaticSize = Enum.AutomaticSize.Y; savedList.BackgroundTransparency = 1; savedList.LayoutOrder = 4
-local slL = Instance.new("UIListLayout", savedList); slL.SortOrder = Enum.SortOrder.LayoutOrder; slL.Padding = UDim.new(0, 4)
-local noSaved = Instance.new("TextLabel", savedList); noSaved.Size = UDim2.new(1,0,0,22); noSaved.BackgroundTransparency = 1; noSaved.Text = "No configs saved yet."; noSaved.TextColor3 = T.txtMute; noSaved.Font = Enum.Font.Gotham; noSaved.TextSize = 11
-
-local cfgRowFrames   = {}
-local selectedCfgName = cfg.selectedCfg or ""
-
-local function applyConfigData(data)
-    for _, e in ipairs(itemEntries) do e.frame:Destroy() end; itemEntries = {}; syncCfgItems(); refreshEmpty()
-    if data.username then usernameBox.Text = data.username; cfg.username = data.username end
-    if data.note     then noteBox.Text = data.note; cfg.note = data.note end
-    if data.interval then intBox.Text = tostring(data.interval); cfg.interval = data.interval end
-    if type(data.items) == "table" then
-        for _, it in ipairs(data.items) do addItemRow(it.name, it.amount, it.autoSend ~= false) end
-    end
-end
-
-local function rebuildSavedList()
-    for _, f in ipairs(cfgRowFrames) do f:Destroy() end; cfgRowFrames = {}
-    local any = false
-    for name, _ in pairs(configs) do
-        any = true
-        local row = Instance.new("Frame", savedList); row.Size = UDim2.new(1,0,0,30); row.BorderSizePixel = 0
-        Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
-        local rSt = Instance.new("UIStroke", row); rSt.Thickness = 1
-
-        local function refreshSel()
-            if selectedCfgName == name then row.BackgroundColor3 = Color3.fromRGB(26,38,68); rSt.Color = T.accent
-            else row.BackgroundColor3 = T.surface; rSt.Color = T.border end
-        end
-        refreshSel()
-
-        local sDot = Instance.new("Frame", row); sDot.Size = UDim2.new(0,6,0,6); sDot.Position = UDim2.new(0,6,0.5,-3); sDot.BorderSizePixel = 0
-        Instance.new("UICorner", sDot).CornerRadius = UDim.new(1, 0); sDot.BackgroundColor3 = selectedCfgName==name and T.accent or T.border
-
-        local nLbl = Instance.new("TextLabel", row); nLbl.Size = UDim2.new(1,-84,1,0); nLbl.Position = UDim2.new(0,18,0,0)
-        nLbl.BackgroundTransparency = 1; nLbl.Text = name; nLbl.TextColor3 = T.txt; nLbl.Font = Enum.Font.GothamSemibold; nLbl.TextSize = 12; nLbl.TextXAlignment = Enum.TextXAlignment.Left
-
-        local selHit = Instance.new("TextButton", row); selHit.Size = UDim2.new(1,-80,1,0); selHit.BackgroundTransparency = 1; selHit.Text = ""
-        selHit.MouseButton1Click:Connect(function() selectedCfgName = name; cfg.selectedCfg = name; saveAll(); rebuildSavedList() end)
-
-        local loadB = Instance.new("TextButton", row); loadB.Size = UDim2.new(0,44,0,22); loadB.Position = UDim2.new(1,-76,0.5,-11)
-        loadB.BackgroundColor3 = T.accent; loadB.Text = "Load"; loadB.TextColor3 = Color3.new(1,1,1); loadB.Font = Enum.Font.GothamBold; loadB.TextSize = 10; loadB.BorderSizePixel = 0
-        Instance.new("UICorner", loadB).CornerRadius = UDim.new(0, 5)
-        loadB.MouseButton1Click:Connect(function()
-            local saved = configs[name]; if not saved then return end
-            applyConfigData(saved); selectedCfgName = name; cfg.selectedCfg = name; saveAll(); rebuildSavedList()
-            setLog("Loaded config: "..name)
-        end)
-
-        local delB = Instance.new("TextButton", row); delB.Size = UDim2.new(0,26,0,22); delB.Position = UDim2.new(1,-26,0.5,-11)
-        delB.BackgroundColor3 = T.redDk; delB.Text = "✕"; delB.TextColor3 = Color3.fromRGB(220,90,90); delB.Font = Enum.Font.GothamBold; delB.TextSize = 10; delB.BorderSizePixel = 0
-        Instance.new("UICorner", delB).CornerRadius = UDim.new(0, 5)
-        delB.MouseButton1Click:Connect(function()
-            configs[name] = nil; if selectedCfgName == name then selectedCfgName = ""; cfg.selectedCfg = "" end; saveAll(); rebuildSavedList()
-        end)
-
-        table.insert(cfgRowFrames, row)
-    end
-    noSaved.Visible = not any
-end
-
-createCfgBtn.MouseButton1Click:Connect(function()
-    local n = cfgNameBox.Text:match("^%s*(.-)%s*$")
-    if n == "" then setLog("⚠  Enter a config name.", true); return end
-    syncCfgItems()
-    configs[n] = { username=usernameBox.Text, note=noteBox.Text, interval=tonumber(intBox.Text) or 10, items=deepCopy(cfg.items) }
-    selectedCfgName = n; cfg.selectedCfg = n; saveAll(); rebuildSavedList()
-    createCfgBtn.Text = "✓  Saved!"; task.delay(1.5, function() if createCfgBtn and createCfgBtn.Parent then createCfgBtn.Text = "＋  Create Config" end end)
-end)
-rebuildSavedList()
-
-local _, getAutoLoad, setAutoLoad = mkToggle("Auto Load Selected on Start", 5, cfgOuter)
-setAutoLoad(cfg.autoLoad)
-task.spawn(function() while gui.Parent do local v=getAutoLoad(); if v~=cfg.autoLoad then cfg.autoLoad=v; saveAll() end; task.wait(0.5) end end)
-
 -- ── Window size ───────────────────────────────────────────────────────
 secLbl("Window size", 6, sp)
 local szCard = Instance.new("Frame"); szCard.Size = UDim2.new(1,0,0,0); szCard.AutomaticSize = Enum.AutomaticSize.Y; szCard.BackgroundColor3 = T.card; szCard.BorderSizePixel = 0; szCard.LayoutOrder = 7; szCard.Parent = sp
@@ -1051,11 +947,11 @@ secLbl("Send limit", 8, sp)
 local limCard=Instance.new("Frame"); limCard.Size=UDim2.new(1,0,0,50); limCard.BackgroundColor3=T.card; limCard.BorderSizePixel=0; limCard.LayoutOrder=9; limCard.Parent=sp
 Instance.new("UICorner",limCard).CornerRadius=UDim.new(0,9); Instance.new("UIStroke",limCard).Color=T.border
 local llbl=Instance.new("TextLabel",limCard); llbl.Size=UDim2.new(1,-90,0,20); llbl.Position=UDim2.new(0,12,0,7); llbl.BackgroundTransparency=1; llbl.Text="Max qty per item"; llbl.TextColor3=T.txt; llbl.Font=Enum.Font.GothamSemibold; llbl.TextSize=12; llbl.TextXAlignment=Enum.TextXAlignment.Left
-local ldsc=Instance.new("TextLabel",limCard); ldsc.Size=UDim2.new(1,-90,0,14); ldsc.Position=UDim2.new(0,12,0,28); ldsc.BackgroundTransparency=1; ldsc.Text="Hard cap: 100 for safety"; ldsc.TextColor3=T.txtMute; ldsc.Font=Enum.Font.Gotham; ldsc.TextSize=10; ldsc.TextXAlignment=Enum.TextXAlignment.Left
+local ldsc=Instance.new("TextLabel",limCard); ldsc.Size=UDim2.new(1,-90,0,14); ldsc.Position=UDim2.new(0,12,0,28); ldsc.BackgroundTransparency=1; ldsc.Text="Set any max qty (no hard cap)"; ldsc.TextColor3=T.txtMute; ldsc.Font=Enum.Font.Gotham; ldsc.TextSize=10; ldsc.TextXAlignment=Enum.TextXAlignment.Left
 local limBox=Instance.new("TextBox",limCard); limBox.Size=UDim2.new(0,58,0,28); limBox.Position=UDim2.new(1,-70,0.5,-14); limBox.BackgroundColor3=T.input; limBox.BorderSizePixel=0; limBox.Text=tostring(cfg.maxAmt); limBox.TextColor3=T.txt; limBox.Font=Enum.Font.GothamBold; limBox.TextSize=12; limBox.ClearTextOnFocus=false
 Instance.new("UICorner",limBox).CornerRadius=UDim.new(0,6); local lmSt=Instance.new("UIStroke",limBox); lmSt.Color=T.border; lmSt.Thickness=1; Instance.new("UIPadding",limBox).PaddingLeft=UDim.new(0,8)
 limBox.Focused:Connect(function() TweenService:Create(lmSt,TweenInfo.new(0.15),{Color=T.accent}):Play() end)
-limBox.FocusLost:Connect(function() TweenService:Create(lmSt,TweenInfo.new(0.15),{Color=T.border}):Play(); local v=tonumber(limBox.Text); if v then cfg.maxAmt=math.clamp(v,1,100); limBox.Text=tostring(cfg.maxAmt) end end)
+limBox.FocusLost:Connect(function() TweenService:Create(lmSt,TweenInfo.new(0.15),{Color=T.border}):Play(); local v=tonumber(limBox.Text); if v then cfg.maxAmt=math.clamp(math.floor(v),1,9999); limBox.Text=tostring(cfg.maxAmt) end end)
 
 -- ── Discord Webhook ───────────────────────────────────────────────────
 secLbl("Discord Webhook", 10, sp)
@@ -1113,16 +1009,39 @@ local function applyAccent(acR,acG,acB, prR,prG,prB)
     local newAccL = Color3.fromRGB(
         math.clamp(acR+40,0,255), math.clamp(acG+35,0,255), math.clamp(acB+0,0,255))
     local newPur  = Color3.fromRGB(prR,prG,prB)
+    -- Derive tinted background/surface/card colors from the accent
+    local function tintDark(r,g,b,mix)
+        return Color3.fromRGB(
+            math.clamp(math.floor(r*mix + acR*(1-mix)*0.18),0,255),
+            math.clamp(math.floor(g*mix + acG*(1-mix)*0.18),0,255),
+            math.clamp(math.floor(b*mix + acB*(1-mix)*0.18),0,255))
+    end
+    local newBg      = tintDark(12,12,19,   0.72)
+    local newSurface = tintDark(21,21,34,   0.70)
+    local newSidebar = tintDark(16,16,26,   0.70)
+    local newCard    = tintDark(26,26,42,   0.68)
+    local newCardAlt = tintDark(22,22,36,   0.70)
+    local newInput   = tintDark(15,15,26,   0.72)
+    local newBorder  = Color3.fromRGB(math.clamp(acR-10,0,255),math.clamp(acG-10,0,255),math.clamp(acB-10,0,255))
+    -- Update T table
     T.accent  = newAcc
     T.accentL = newAccL
     T.purple  = newPur
+    T.bg      = newBg
+    T.surface = newSurface
+    T.sidebar = newSidebar
+    T.card    = newCard
+    T.cardAlt = newCardAlt
+    T.input   = newInput
+    T.border  = newBorder
     -- Update pill gradient
     if pill and pill.Parent then
         local pg = pill:FindFirstChildOfClass("UIGradient")
         if pg then pg.Color = ColorSequence.new{ColorSequenceKeypoint.new(0,newAcc), ColorSequenceKeypoint.new(1,newPur)} end
     end
-    -- Update window stroke
-    if winStk and winStk.Parent then winStk.Color = Color3.fromRGB(math.clamp(acR-10,0,255),math.clamp(acG-10,0,255),math.clamp(acB-10,0,255)) end
+    -- Update window background + stroke
+    if win and win.Parent then win.BackgroundColor3 = newBg end
+    if winStk and winStk.Parent then winStk.Color = newBorder end
     -- Update top bar gradient
     if topG and topG.Parent then
         topG.Color = ColorSequence.new{
@@ -1131,6 +1050,13 @@ local function applyAccent(acR,acG,acB, prR,prG,prB)
             ColorSequenceKeypoint.new(1, Color3.fromRGB(52,195,105)),
         }
     end
+    -- Update title bar + fix strip
+    if titleBar and titleBar.Parent then titleBar.BackgroundColor3 = newSurface end
+    if tbFix and tbFix.Parent then tbFix.BackgroundColor3 = newSurface end
+    -- Update sidebar
+    if sideBar and sideBar.Parent then sideBar.BackgroundColor3 = newSidebar end
+    -- Update content area frames
+    if contentArea and contentArea.Parent then contentArea.BackgroundColor3 = newBg end
     -- Update mini button
     if miniBtn and miniBtn.Parent then
         miniBtn.BackgroundColor3 = newAcc
@@ -1140,7 +1066,44 @@ local function applyAccent(acR,acG,acB, prR,prG,prB)
     -- Update sidebar tab bars
     for _, td in ipairs(allTabs) do
         if td.bar then td.bar.BackgroundColor3 = newAcc end
+        if td.frame then td.frame.BackgroundColor3 = newSidebar end
     end
+    -- Repaint all cards and input boxes recursively
+    local function repaintDescendants(parent)
+        for _, obj in ipairs(parent:GetDescendants()) do
+            if obj:IsA("Frame") then
+                local bc = obj.BackgroundColor3
+                -- Match original card/surface/input/sidebar colors roughly and remap
+                local function approx(c, target, tol)
+                    return math.abs(c.R-target.R)<tol and math.abs(c.G-target.G)<tol and math.abs(c.B-target.B)<tol
+                end
+                if approx(bc, Color3.fromRGB(26,26,42)/255*255, 0.12) then obj.BackgroundColor3 = newCard
+                elseif approx(bc, Color3.fromRGB(22,22,36)/255*255, 0.12) then obj.BackgroundColor3 = newCardAlt
+                elseif approx(bc, Color3.fromRGB(21,21,34)/255*255, 0.12) then obj.BackgroundColor3 = newSurface
+                elseif approx(bc, Color3.fromRGB(16,16,26)/255*255, 0.12) then obj.BackgroundColor3 = newSidebar
+                elseif approx(bc, Color3.fromRGB(12,12,19)/255*255, 0.12) then obj.BackgroundColor3 = newBg
+                end
+                local st = obj:FindFirstChildOfClass("UIStroke")
+                if st then
+                    local sc = st.Color
+                    if approx(sc, Color3.fromRGB(45,45,70)/255*255, 0.12) then st.Color = newBorder end
+                end
+            elseif obj:IsA("TextBox") then
+                local bc = obj.BackgroundColor3
+                local function approx(c, target, tol)
+                    return math.abs(c.R-target.R)<tol and math.abs(c.G-target.G)<tol and math.abs(c.B-target.B)<tol
+                end
+                if approx(bc, Color3.fromRGB(15,15,26)/255*255, 0.12) then obj.BackgroundColor3 = newInput end
+            elseif obj:IsA("TextButton") then
+                local bc = obj.BackgroundColor3
+                local function approx(c, target, tol)
+                    return math.abs(c.R-target.R)<tol and math.abs(c.G-target.G)<tol and math.abs(c.B-target.B)<tol
+                end
+                if approx(bc, Color3.fromRGB(100,140,255)/255*255, 0.18) then obj.BackgroundColor3 = newAcc end
+            end
+        end
+    end
+    pcall(repaintDescendants, win)
     saveAll()
 end
 
@@ -1170,7 +1133,7 @@ secLbl("About", 14, sp)
 local aCard=Instance.new("Frame"); aCard.Size=UDim2.new(1,0,0,50); aCard.BackgroundColor3=T.card; aCard.BorderSizePixel=0; aCard.LayoutOrder=15; aCard.Parent=sp
 Instance.new("UICorner",aCard).CornerRadius=UDim.new(0,9); Instance.new("UIStroke",aCard).Color=T.border
 local aLbl=Instance.new("TextLabel",aCard); aLbl.Size=UDim2.new(1,-20,1,0); aLbl.Position=UDim2.new(0,12,0,0); aLbl.BackgroundTransparency=1
-aLbl.Text="Auto Send Mailbox  v7.0\nPer-item Auto Send loop + instant Send Once · hard cap 100."; aLbl.TextColor3=T.txtMute; aLbl.Font=Enum.Font.Gotham; aLbl.TextSize=10; aLbl.TextXAlignment=Enum.TextXAlignment.Left; aLbl.TextYAlignment=Enum.TextYAlignment.Center
+aLbl.Text="Auto Send Mailbox  v7.0\nPer-item Auto Send loop + instant Send Once · customizable qty cap."; aLbl.TextColor3=T.txtMute; aLbl.Font=Enum.Font.Gotham; aLbl.TextSize=10; aLbl.TextXAlignment=Enum.TextXAlignment.Left; aLbl.TextYAlignment=Enum.TextYAlignment.Center
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- AUTO-SEND LOOP
@@ -1245,11 +1208,8 @@ end
 if loadAll() then
     usernameBox.Text = cfg.username; noteBox.Text = cfg.note; intBox.Text = tostring(cfg.interval)
     limBox.Text = tostring(cfg.maxAmt); webhookBox.Text = cfg.webhook; setWHon(cfg.webhookOn)
-    setAutoLoad(cfg.autoLoad); selectedCfgName = cfg.selectedCfg or ""
     win.Size = UDim2.new(0,cfg.winW,0,cfg.winH); win.Position = UDim2.new(0.5,-cfg.winW/2,0.5,-cfg.winH/2)
-    if cfg.autoLoad and cfg.selectedCfg ~= "" and configs[cfg.selectedCfg] then
-        applyConfigData(configs[cfg.selectedCfg]); setLog("Auto-loaded: "..cfg.selectedCfg)
-    elseif #cfg.items > 0 then
+    if #cfg.items > 0 then
         -- Restore items from last session
         for _, it in ipairs(cfg.items) do addItemRow(it.name, it.amount, it.autoSend ~= false) end
         setLog("Restored from last session.")
@@ -1258,7 +1218,6 @@ if loadAll() then
         loadDefaultItems()
         setLog("Default items loaded — add a username to start.")
     end
-    rebuildSavedList()
 else
     -- First run ever: load default items
     loadDefaultItems()

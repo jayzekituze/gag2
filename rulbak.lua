@@ -1,9 +1,11 @@
 repeat task.wait() until game:IsLoaded()
-task.wait(2)
+
 -- =========================================================================
 -- CONFIGURATION
 -- =========================================================================
-local TARGET_KG = 70          -- Carrot weight threshold in KG
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1523747394146275451/BHBKhJYnFgrgO7MQAOFGebEuR7tY7D-7008RlXPOGtnEKhvfzqeoOEzCHxeGhMuKd0QW" -- Put your webhook URL here
+local targetPlayerName = "Leesoo3151" -- Username of the AFK
+local TARGET_KG = 60          -- Carrot weight threshold in KG
 local SEED_NAME = "Mega"    -- Change to whatever seed u want
 local SPRINKLER_NAME = "Super Sprinkler"
 local SPRINKLER_RADIUS = 55   -- studs || DONT CHANGE CUZ THIS IS CONSTANT ||
@@ -28,6 +30,65 @@ local PlayerStateClient = require(game:GetService("ReplicatedStorage").ClientMod
 -- Ensure character is loaded
 local character = lp.Character or lp.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
+
+-- =========================================================================
+-- WEBHOOK FUNCTION (Handles Found & Not Found)
+-- =========================================================================
+local function sendDiscordWebhook(isFound, plantName, weight)
+    if WEBHOOK_URL == "" or WEBHOOK_URL == "YOUR_WEBHOOK_URL_HERE" then return end
+
+    local embed = {}
+
+    if isFound then
+        embed = {
+            ["title"] = "✅ Target Plant Found!",
+            ["description"] = "A plant has successfully reached the target weight threshold.",
+            ["color"] = 65280, -- Hex #00FF00 (Green)
+            ["fields"] = {
+                { ["name"] = "🧑 Player", ["value"] = tostring(lp.Name), ["inline"] = true },
+                { ["name"] = "🌿 Plant Type", ["value"] = tostring(plantName), ["inline"] = true },
+                { ["name"] = "⚖️ Weight", ["value"] = string.format("%.4f KG", weight), ["inline"] = true }
+            }
+        }
+    else
+        embed = {
+            ["title"] = "❌ Target Not Found (Rolling Back)",
+            ["description"] = "No plant reached the threshold. Rejoining server to rollback.",
+            ["color"] = 16711680, -- Hex #FF0000 (Red)
+            ["fields"] = {
+                { ["name"] = "🧑 Player", ["value"] = tostring(lp.Name), ["inline"] = true },
+                { ["name"] = "🌿 Best Plant", ["value"] = tostring(plantName), ["inline"] = true },
+                { ["name"] = "⚖️ Max Weight Reached", ["value"] = string.format("%.4f KG", weight), ["inline"] = true }
+            }
+        }
+    end
+
+    embed["type"] = "rich"
+    embed["footer"] = { ["text"] = "Rollback Auto-Farmer" }
+    embed["timestamp"] = DateTime.now():ToIsoDate()
+
+    local payload = {
+        ["embeds"] = {embed}
+    }
+
+    -- Support for various executors
+    local requestFunc = request or http_request or (http and http.request) or (syn and syn.request)
+    
+    if requestFunc then
+        task.spawn(function()
+            pcall(function()
+                requestFunc({
+                    Url = WEBHOOK_URL,
+                    Method = "POST",
+                    Headers = { ["Content-Type"] = "application/json" },
+                    Body = HttpService:JSONEncode(payload)
+                })
+            end)
+        end)
+    else
+        warn("[Webhook] No compatible HTTP request function found for your executor.")
+    end
+end
 
 -- =========================================================================
 -- CHECK SUCCESS FLAG (persists across rejoins via disk)
@@ -88,6 +149,22 @@ local function waitForLoadingScreen()
 end
 
 waitForLoadingScreen()
+
+-- =========================================================================
+-- TARGET PLAYER CHECK
+-- =========================================================================
+if not Players:FindFirstChild(targetPlayerName) then
+    print("[PLAYER CHECK] Waiting for player '" .. targetPlayerName .. "' to join the server.")
+    while not Players:FindFirstChild(targetPlayerName) do
+        task.wait(1)
+    end
+    print("[PLAYER CHECK] Proceeding...")
+end
+
+if tostring(Players.LocalPlayer) == targetPlayerName then
+    print("[PLAYER CHECK] Player is AFK-Player. Not Executing Rollback.")
+    return
+end
 
 -- =========================================================================
 -- 1. START ROLLBACK PAYLOAD
@@ -216,17 +293,25 @@ task.wait(5)
 -- =========================================================================
 local plantsFolder = plot:FindFirstChild("Plants")
 local foundTarget = false
+local highestWeight = 0
+local highestPlantName = "None"
 
 if plantsFolder then
     for _, plantModel in ipairs(plantsFolder:GetChildren()) do
         local userId = plantModel:GetAttribute("UserId")
         local plantId = plantModel:GetAttribute("PlantId")
-        local seedName = plantModel:GetAttribute("SeedName")
 
         if userId and plantId then
             local plantData = GardenSyncController:GetPlant(userId, plantId)
             if plantData then
                 local weight = plantData.Weight or 0
+
+                -- Track the highest weight found during this run
+                if plantData.PlantName == "Carrot" and weight > highestWeight then
+                    highestWeight = weight
+                    highestPlantName = plantData.PlantName
+                end
+
                 print(string.format("Plant: %s | Weight: %.2f kg", plantData.PlantName, weight))
                 if plantData.PlantName == "Carrot" and weight >= TARGET_KG then
                     foundTarget = true
@@ -239,11 +324,14 @@ if plantsFolder then
 end
 
 if foundTarget then
-    print("[Rollback Panel] Target found. Initiating Rollback Stop sequence...")
+    print("[Rollback Panel] Target found. Initiating Discord Notification...")
     pcall(function() Networking.SignTool.SetSignImage:Fire("") end)
     pcall(function() Networking.SignTool.SetSignImage:Fire(" ") end)
     pcall(function() Networking.SignTool.SetSignImage:Fire(nil) end)
     print("[Rollback Panel] Stop sequence fired cleanly.")
+
+    -- 🟢 FIRE SUCCESS WEBHOOK 🟢
+    sendDiscordWebhook(true, highestPlantName, highestWeight)
 
     -- Write the success flag to disk BEFORE rejoining
     writeFlag()
@@ -251,7 +339,8 @@ if foundTarget then
     task.wait(1)
 else
     print("[Rollback Panel] No qualifying plant found. Rejoining to trigger rollback...")
+    sendDiscordWebhook(false, highestPlantName, highestWeight)
 end
 
-task.wait(5)
+task.wait(4)
 TeleportService:Teleport(game.PlaceId, lp)

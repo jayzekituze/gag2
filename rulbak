@@ -253,5 +253,5 @@ else
     print("[Rollback Panel] No qualifying plant found. Rejoining to trigger rollback...")
 end
 
-task.wait(2)
+task.wait(5)
 TeleportService:Teleport(game.PlaceId, lp)

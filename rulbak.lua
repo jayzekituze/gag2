@@ -5,7 +5,7 @@ repeat task.wait() until game:IsLoaded()
 -- =========================================================================
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1523747394146275451/BHBKhJYnFgrgO7MQAOFGebEuR7tY7D-7008RlXPOGtnEKhvfzqeoOEzCHxeGhMuKd0QW" -- Put your webhook URL here
 local targetPlayerName = "Leesoo3151" -- Username of the AFK
-local TARGET_KG = 60          -- Carrot weight threshold in KG
+local TARGET_KG = 50          -- Carrot weight threshold in KG
 local SEED_NAME = "Mega"    -- Change to whatever seed u want
 local SPRINKLER_NAME = "Super Sprinkler"
 local SPRINKLER_RADIUS = 55   -- studs || DONT CHANGE CUZ THIS IS CONSTANT ||

@@ -12,14 +12,26 @@ local LocalPlayer  = Players.LocalPlayer
 -- DEFAULT ITEMS (always pre-loaded)
 -- ═══════════════════════════════════════════════════════════════════════
 local DEFAULT_ITEMS = {
-    { name = "Uncommon Sprinkler",  amount = 100, autoSend = true },
-    { name = "Trowel",              amount = 100, autoSend = true },
-    { name = "Rare Sprinkler",      amount = 100, autoSend = true },
-    { name = "Gnome",               amount = 100, autoSend = true },
-    { name = "Legendary Sprinkler", amount = 100, autoSend = true },
-    { name = "Super Sprinkler",     amount = 100, autoSend = true },
-    { name = "Ladder Crate",        amount = 100, autoSend = true },
-    { name = "Super Watering Can",  amount = 100, autoSend = true },
+    { name = "Trowel",  amount = 9999, autoSend = true },
+    { name = "Common Sprinkler",              amount = 9999, autoSend = true },
+    { name = "Uncommon Sprinkler",      amount = 9999, autoSend = true },
+    { name = "Rare Sprinkler",               amount = 9999, autoSend = true },
+    { name = "Legendary Sprinkler", amount = 9999, autoSend = true },
+    { name = "Super Sprinkler",     amount = 9999, autoSend = true },
+    { name = "Common Watering Can",        amount = 9999, autoSend = true },
+    { name = "Super Watering Can",  amount = 9999, autoSend = true },
+	{ name = "Ladder Crate",  amount = 9999, autoSend = true },
+	{ name = "Roleplay Crate",  amount = 9999, autoSend = true },
+	{ name = "Gold",  amount = 9999, autoSend = true },
+	{ name = "Rainbow",  amount = 9999, autoSend = true },
+	{ name = "Mega",  amount = 9999, autoSend = true },
+    { name = "Light Crate",  amount = 9999, autoSend = true },
+    { name = "Picture Frame Crate",  amount = 9999, autoSend = true },
+    { name = "Bear Trap Crate",  amount = 9999, autoSend = true },
+    { name = "Conveyor Crate",  amount = 9999, autoSend = true },
+    { name = "Owner Door Crate",  amount = 9999, autoSend = true },
+	{ name = "Fourth Of July Crate",  amount = 9999, autoSend = true },
+	{ name = "Carrot",  amount = 9999, autoSend = true },
 }
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -32,13 +44,14 @@ local cfg = {
     items           = {},
     note            = "",
     interval        = 10,
-    maxAmt          = 500,
+    maxAmt          = 9999,
     webhook         = "",
     webhookOn       = false,
     winW            = 620,
     winH            = 500,
     confirmOnce     = true,   -- NEW: show confirmation before Send Once
     clearAfterOnce  = true,   -- NEW: clear recipient after Send Once
+    autoDrop        = false,  -- NEW: auto drop held items
 }
 
 local function deepCopy(t)
@@ -1058,8 +1071,11 @@ intSL.BackgroundTransparency = 1; intSL.Text = "seconds between sends"; intSL.Te
 -- ── Auto Send master toggle ───────────────────────────────────────────
 local _, getAutoSend, setAutoSend = mkToggle("Auto Send", 10, mp)
 
+-- ── Auto Drop Held Items toggle ───────────────────────────────────────
+local _, getAutoDrop, setAutoDrop = mkToggle("Auto Drop Held Items", 10.5, mp)
+
 -- ── Log bar ──────────────────────────────────────────────────────────
-local logBar = Instance.new("Frame"); logBar.Size = UDim2.new(1,0,0,34); logBar.BackgroundColor3 = T.card; logBar.BorderSizePixel = 0; logBar.LayoutOrder = 11; logBar.Parent = mp
+local logBar = Instance.new("Frame"); logBar.Size = UDim2.new(1,0,0,34); logBar.BackgroundColor3 = T.card; logBar.BorderSizePixel = 0; logBar.LayoutOrder = 12; logBar.Parent = mp
 Instance.new("UICorner", logBar).CornerRadius = UDim.new(0, 8); Instance.new("UIStroke", logBar).Color = T.border
 local logNub = Instance.new("Frame", logBar); logNub.Size = UDim2.new(0,3,0,20); logNub.Position = UDim2.new(0,0,0.5,-10); logNub.BackgroundColor3 = T.accent; logNub.BorderSizePixel = 0; Instance.new("UICorner", logNub).CornerRadius = UDim.new(0,2)
 local logDot = Instance.new("Frame", logBar); logDot.Size = UDim2.new(0,8,0,8); logDot.Position = UDim2.new(0,12,0.5,-4)
@@ -1450,6 +1466,48 @@ task.spawn(function()
     end
 end)
 
+-- ═══════════════════════════════════════════════════════════════════════
+-- AUTO-DROP LOOP
+-- ═══════════════════════════════════════════════════════════════════════
+local autoDropRunning = false
+local autoDropThread  = nil
+
+local function stopAutoDrop()
+    autoDropRunning = false
+    getgenv().autoBackspace = false
+    if autoDropThread then task.cancel(autoDropThread); autoDropThread = nil end
+end
+
+local function startAutoDrop()
+    autoDropRunning = true
+    getgenv().autoBackspace = true
+    local VirtualInputManager = game:GetService("VirtualInputManager")
+    autoDropThread = task.spawn(function()
+        while autoDropRunning and getgenv().autoBackspace do
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Backspace, false, game)
+            task.wait()
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Backspace, false, game)
+            task.wait()
+        end
+    end)
+end
+
+task.spawn(function()
+    while gui.Parent do
+        local state = getAutoDrop()
+        if state and not autoDropRunning then
+            startAutoDrop()
+        elseif not state and autoDropRunning then
+            stopAutoDrop()
+        end
+        if state ~= cfg.autoDrop then
+            cfg.autoDrop = state
+            saveAll()
+        end
+        task.wait(0.5)
+    end
+end)
+
 -- Refresh inventory dots + counts every 6 seconds
 task.spawn(function()
     while gui.Parent do task.wait(6); local ok,inv = pcall(getInv); if ok and inv then updateDots(inv) end end
@@ -1471,6 +1529,7 @@ if loadAll() then
     -- Restore Send Once behaviour toggles
     setConfirmOnce(cfg.confirmOnce)
     setClearAfterOnce(cfg.clearAfterOnce)
+    setAutoDrop(cfg.autoDrop == true)
     if #cfg.items > 0 then
         for _, it in ipairs(cfg.items) do addItemRow(it.name, it.amount, it.autoSend ~= false) end
         setLog("Restored from last session.")
